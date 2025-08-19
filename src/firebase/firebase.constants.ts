@@ -1,0 +1,1 @@
+export const FIREBASE_ADMIN_APP = 'FIREBASE_ADMIN_APP';

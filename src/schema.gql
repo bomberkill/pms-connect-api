@@ -1,0 +1,375 @@
+# ------------------------------------------------------
+# THIS FILE WAS AUTOMATICALLY GENERATED (DO NOT MODIFY)
+# ------------------------------------------------------
+
+"""The status of the user account."""
+enum AccountStatus {
+  ACTIVE
+  DEACTIVATED
+  PENDING_VERIFICATION
+  SUSPENDED
+}
+
+input AdminLoginInput {
+  email: String!
+  password: String!
+}
+
+type AdminLoginResponse {
+  accessToken: String!
+}
+
+"""Defines the roles for dashboard administrators."""
+enum AdminRole {
+  CONTENT_MODERATOR
+  SUPER_ADMIN
+  SUPPORT_AGENT
+  USER_MANAGER
+}
+
+"""Represents a dashboard administrator user"""
+type AdminUser {
+  _id: ID!
+  createdAt: DateTime!
+  email: String!
+
+  """Number of failed login attempts since last success"""
+  failedLoginAttempts: Int!
+  isActive: Boolean!
+
+  """Indicates if the account is currently locked out"""
+  isLockedOut: Boolean!
+  lastLoginAt: DateTime
+  name: String!
+
+  """Specific permissions granted to the admin user"""
+  permissions: [String!]!
+  roles: [AdminRole!]!
+  updatedAt: DateTime!
+}
+
+type CheckUserExistsResponse {
+  exists: Boolean!
+  hasPassword: Boolean!
+  providers: [String!]!
+}
+
+input CreateAdminUserInput {
+  email: String!
+  isActive: Boolean = true
+  name: String!
+  password: String!
+  permissions: [String!] = []
+  roles: [AdminRole!]! = [SUPPORT_AGENT]
+}
+
+input CreateUserInput {
+  bio: String
+  coverPicUrl: String
+  email: String!
+  entityName: String
+  entityType: EntityType
+  firstName: String
+  lastName: String
+  location: LocationInput
+  professionalAccreditation: [ProfessionalAccreditationInput!]
+  professionalTitle: String
+  profilePicUrl: String
+  speciality: Speciality
+  userType: UserType!
+  websiteUrl: String
+}
+
+"""
+A date-time string at UTC, such as 2019-12-03T09:54:33Z, compliant with the date-time format.
+"""
+scalar DateTime
+
+"""Type of legal entity in the healthcare sector."""
+enum EntityType {
+  ASSOCIATION
+  CLINIC
+  COMPANY
+  HEALTH_TRAINING_INSTITUTION
+  HOSPITAL
+  IMAGING_CENTER
+  LABORATORY
+  MEDICAL_ASSOCIATION
+  PHARMACEUTICAL_COMPANY
+}
+
+"""Represents an individual healthcare professional."""
+type IndividualUserObject implements User {
+  """Unique identifier for the user (MongoDB ObjectId)"""
+  _id: ID!
+  accountStatus: AccountStatus!
+  bio: String
+
+  """List of blocked user IDs"""
+  blockedUsers: [ID!]!
+
+  """List of connected user IDs"""
+  connections: [ID!]!
+  coverPicUrl: String
+  createdAt: DateTime!
+  email: String!
+
+  """User's unique identifier from Firebase Authentication"""
+  firebaseUid: ID!
+  firstName: String!
+
+  """List of follower user IDs"""
+  followers: [ID!]!
+
+  """List of user IDs this user is following"""
+  following: [ID!]!
+  lastLoginAt: DateTime
+  lastName: String!
+
+  """User location details"""
+  location: LocationObject
+
+  """Professional accreditation documents or details."""
+  professionalAccreditation: [ProfessionalAccreditationObject!]
+
+  """Professional title (e.g., Dr., Nurse)"""
+  professionalTitle: String
+  profilePicUrl: String
+
+  """Medical specialty or field of activity"""
+  speciality: Speciality!
+  updatedAt: DateTime!
+  userType: UserType!
+  websiteUrl: String
+}
+
+"""Represents a legal entity in the healthcare sector."""
+type LegalEntityUserObject implements User {
+  """Unique identifier for the user (MongoDB ObjectId)"""
+  _id: ID!
+  accountStatus: AccountStatus!
+  bio: String
+
+  """List of blocked user IDs"""
+  blockedUsers: [ID!]!
+
+  """List of connected user IDs"""
+  connections: [ID!]!
+  coverPicUrl: String
+  createdAt: DateTime!
+  email: String!
+
+  """Official name of the legal entity"""
+  entityName: String!
+
+  """Type of legal entity (e.g., Hospital, Clinic, Association)"""
+  entityType: EntityType!
+
+  """User's unique identifier from Firebase Authentication"""
+  firebaseUid: ID!
+
+  """List of follower user IDs"""
+  followers: [ID!]!
+
+  """List of user IDs this user is following"""
+  following: [ID!]!
+  lastLoginAt: DateTime
+
+  """User location details"""
+  location: LocationObject
+
+  """Professional accreditation documents or details."""
+  professionalAccreditation: [ProfessionalAccreditationObject!]
+  profilePicUrl: String
+  updatedAt: DateTime!
+  userType: UserType!
+  websiteUrl: String
+}
+
+input LocationInput {
+  addressLine1: String
+  addressLine2: String
+  city: String
+  country: String!
+  postalCode: String
+  stateOrProvince: String
+}
+
+"""Represents a geographical location."""
+type LocationObject {
+  addressLine1: String
+  addressLine2: String
+  city: String
+  country: String!
+  postalCode: String
+  stateOrProvince: String
+}
+
+type Mutation {
+  adminLogin(adminLoginInput: AdminLoginInput!): AdminLoginResponse!
+  createAdminUser(createAdminUserInput: CreateAdminUserInput!): AdminUser!
+  createUser(createUserInput: CreateUserInput!): User!
+
+  """Initiates the password reset process for an admin."""
+  requestAdminPasswordReset(requestAdminPasswordResetInput: RequestAdminPasswordResetInput!): Boolean!
+
+  """Resets the admin password using a token."""
+  resetAdminPassword(resetAdminPasswordInput: ResetAdminPasswordInput!): AdminUser!
+  updateAccountStatus(updateAccountStatusInput: UpdateAccountStatusInput!): User!
+  updateAdminUser(id: ID!, updateAdminUserInput: UpdateAdminUserInput!): AdminUser!
+  updateMyProfile(updateUserInput: UpdateUserInput!): User!
+
+  """Checks if an admin JWT is valid."""
+  verifyAdminToken(verifyAdminTokenInput: VerifyAdminTokenInput!): Boolean!
+}
+
+input ProfessionalAccreditationInput {
+  accreditationType: String
+  documentUrl: String!
+  expirationDate: DateTime
+  issueDate: DateTime
+  issuingAuthority: String
+  referenceNumber: String
+}
+
+"""Represents a professional accreditation document or its details."""
+type ProfessionalAccreditationObject {
+  """Type of accreditation (e.g., Diploma, Certificate)."""
+  accreditationType: String
+
+  """URL to the uploaded document."""
+  documentUrl: String!
+
+  """Expiration date, if applicable."""
+  expirationDate: DateTime
+
+  """Date of issue."""
+  issueDate: DateTime
+
+  """Issuing authority or institution."""
+  issuingAuthority: String
+
+  """Reference number of the document."""
+  referenceNumber: String
+}
+
+type Query {
+  """Gets the currently authenticated admin user."""
+  adminMe: AdminUser!
+  adminUser(id: ID!): AdminUser
+  allAdminUsers: [AdminUser!]!
+  checkUserExistsByEmail(email: String!): CheckUserExistsResponse!
+  getAllUsers(
+    """Number of items to return"""
+    limit: Int = 10
+
+    """Number of items to skip"""
+    skip: Int = 0
+
+    """Filter by user type"""
+    userType: UserType
+  ): [User!]!
+  getUserByFirebaseUid(firebaseUid: ID!): User
+  getUserById(id: ID!): User
+  me: User
+}
+
+input RequestAdminPasswordResetInput {
+  email: String!
+}
+
+input ResetAdminPasswordInput {
+  newPassword: String!
+  token: String!
+}
+
+"""Medical specialty or field of activity for an individual professional."""
+enum Speciality {
+  CAREGIVERS
+  DENTAL_SURGEONS
+  MEDICAL_DOCTORS
+  MEDICAL_REPRESENTATIVES
+  MEDICO_SANITARY_TECHNICIANS
+  MIDWIVES
+  NURSES
+  OTHER_HEALTH_AUXILIARY
+  PHARMACISTS
+  PHARMACY_ASSISTANTS
+  PUBLIC_HEALTH_ADMINISTRATION
+  SANITARY_ENGINEERING
+}
+
+input UpdateAccountStatusInput {
+  accountStatus: AccountStatus!
+  userId: ID!
+}
+
+input UpdateAdminUserInput {
+  email: String
+  isActive: Boolean
+  name: String
+  permissions: [String!]
+  roles: [AdminRole!]
+}
+
+input UpdateUserInput {
+  bio: String
+  coverPicUrl: String
+  entityName: String
+  entityType: EntityType
+  firstName: String
+  lastName: String
+  location: LocationInput
+  professionalAccreditation: [ProfessionalAccreditationInput!]
+  professionalTitle: String
+  profilePicUrl: String
+  speciality: Speciality
+  websiteUrl: String
+}
+
+"""Represents a user, can be an individual or a legal entity."""
+interface User {
+  """Unique identifier for the user (MongoDB ObjectId)"""
+  _id: ID!
+  accountStatus: AccountStatus!
+  bio: String
+
+  """List of blocked user IDs"""
+  blockedUsers: [ID!]!
+
+  """List of connected user IDs"""
+  connections: [ID!]!
+  coverPicUrl: String
+  createdAt: DateTime!
+  email: String!
+
+  """User's unique identifier from Firebase Authentication"""
+  firebaseUid: ID!
+
+  """List of follower user IDs"""
+  followers: [ID!]!
+
+  """List of user IDs this user is following"""
+  following: [ID!]!
+  lastLoginAt: DateTime
+
+  """User location details"""
+  location: LocationObject
+
+  """Professional accreditation documents or details."""
+  professionalAccreditation: [ProfessionalAccreditationObject!]
+  profilePicUrl: String
+  updatedAt: DateTime!
+  userType: UserType!
+  websiteUrl: String
+}
+
+"""The type of user account: individual or legal entity."""
+enum UserType {
+  INDIVIDUAL
+  LEGAL_ENTITY
+}
+
+input VerifyAdminTokenInput {
+  token: String!
+}
