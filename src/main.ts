@@ -15,7 +15,7 @@ async function bootstrap() {
                   // e.g., 'http://localhost:3001' or ['http://yourdomain.com', 'https://yourdomain.com']
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
     credentials: true,
-    // allowedHeaders: 'Content-Type, Accept, Authorization', // Uncomment and add if you have other custom headers
+    allowedHeaders: ['Content-Type', 'Authorization'],
   });
 
    // Configuration de session (même si l'authentification JWT est sans état)
