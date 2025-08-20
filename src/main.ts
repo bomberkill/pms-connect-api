@@ -11,7 +11,7 @@ async function bootstrap() {
 
   // Enable CORS
   app.enableCors({
-    origin: true, // For development. In production, specify your frontend domain(s).
+    origin: "*", // For development. In production, specify your frontend domain(s).
                   // e.g., 'http://localhost:3001' or ['http://yourdomain.com', 'https://yourdomain.com']
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
     credentials: true,
