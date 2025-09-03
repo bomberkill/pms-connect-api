@@ -2,15 +2,15 @@ import { Resolver, Query, Mutation, Args, ID, Context } from '@nestjs/graphql';
 import { UsersService } from './users.service';
 import { User } from './users.model'; // Import the base GraphQL User model/interface
 import { CreateUserInput } from './dto/create-user.input';
-import { UseGuards, UnauthorizedException, NotFoundException, BadRequestException } from '@nestjs/common';
+import { UseGuards, BadRequestException } from '@nestjs/common';
 import { FirebaseAuthGuard } from '../auth/guards/firebase-auth.guard';
-import { AuthGuard } from '@nestjs/passport'; // Import the generic AuthGuard
-import { AdminAuthGuard } from '../admin-auth/guards/admin-auth.guard'; // Import AdminAuthGuard
+import { AdminAuthGuard } from '../admin-auth/guards/admin-auth.guard';
 import { CurrentUser, CurrentUserType } from '../auth/decorators/current-user.decorator';
 import { UserDocument } from './users.schema';
 import { UpdateUserInput } from './dto/update-user.input';
 import { UpdateAccountStatusInput } from './dto/update-account-status.input';
 import { GetAllUsersArgs } from './dto/get-all-users.args';
+import { CombinedAuthGuard } from '../auth/guards/combined-auth.guard'; // <-- IMPORTER LE GARDE UNIFIÉ
 
 
 @Resolver(() => User) // Specify User as the base type this resolver handles
@@ -49,8 +49,7 @@ export class UsersResolver {
   }
 
   // Add other queries (e.g., userById, allUsers) and mutations (e.g., updateUser, deleteUser) here
-//   @UseGuards(FirebaseAuthGuard)
-  @UseGuards(AuthGuard(['firebase', 'admin-jwt'])) // Accessible if EITHER firebase OR admin-jwt auth succeeds
+  @UseGuards(CombinedAuthGuard) // <-- UTILISER LE GARDE UNIFIÉ
   @Query(() => User, { name: 'getUserById', nullable: true }) // 'user' is a common name for fetching by primary ID
   async getUserById(
     @Args('id', { type: () => ID }) id: string,
@@ -72,12 +71,23 @@ export class UsersResolver {
   }
 
   @UseGuards(FirebaseAuthGuard)
+  // @UseGuards(CombinedAuthGuard)
   @Mutation(() => User, { name: 'updateMyProfile' })
   async updateMyProfile(
     @Args('updateUserInput') updateUserInput: UpdateUserInput,
     @CurrentUser() currentUser: UserDocument,
   ): Promise<User> {
     const updatedUser = await this.usersService.update(currentUser._id.toString(), updateUserInput);
+    return updatedUser as unknown as User;
+  }
+
+  @UseGuards(AdminAuthGuard)
+  @Mutation(() => User, { name: 'updateUserByAdmin' })
+  async updateUserByAdmin(
+    @Args('id', { type: () => ID }) id: string,
+    @Args('updateUserInput') updateUserInput: UpdateUserInput,
+  ): Promise<User> {
+    const updatedUser = await this.usersService.update(id, updateUserInput);
     return updatedUser as unknown as User;
   }
 
