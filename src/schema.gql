@@ -218,6 +218,7 @@ type Mutation {
   updateAccountStatus(updateAccountStatusInput: UpdateAccountStatusInput!): User!
   updateAdminUser(id: ID!, updateAdminUserInput: UpdateAdminUserInput!): AdminUser!
   updateMyProfile(updateUserInput: UpdateUserInput!): User!
+  updateUserByAdmin(id: ID!, updateUserInput: UpdateUserInput!): User!
 
   """Checks if an admin JWT is valid."""
   verifyAdminToken(verifyAdminTokenInput: VerifyAdminTokenInput!): Boolean!
