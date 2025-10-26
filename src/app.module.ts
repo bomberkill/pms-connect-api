@@ -3,63 +3,90 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { MongooseModule } from '@nestjs/mongoose';
-import { GraphQLModule } from '@nestjs/graphql'; // <--- NOUVEAU
-import { ApolloDriver, ApolloDriverConfig } from '@nestjs/apollo'; // <--- NOUVEAU
-import { join } from 'path'; // <--- NOUVEAU (utilitaire Node.js pour les chemins)
+import { GraphQLModule } from '@nestjs/graphql';
+import { ApolloDriver, ApolloDriverConfig } from '@nestjs/apollo';
+import { join } from 'path';
 import { UsersModule } from './users/users.module';
 import { AuthModule } from './auth/auth.module';
 import { AuthService } from './auth/auth.service';
-import { FirebaseModule } from './firebase/firebase.module'; // <--- NOUVEAU: Import du module Firebase
-import { AdminsModule } from './admins/admins.module'; // <-- IMPORT ADMIN MODULE
+import { FirebaseModule } from './firebase/firebase.module';
+import { AdminsModule } from './admins/admins.module';
 import { AdminAuthModule } from './admin-auth/admin-auth.module';
 import { EmailModule } from './email/email.module';
+import { PostsModule } from './posts/posts.module';
+import { NotificationsModule } from './notifications/notifications.module';
+import { PubSubModule } from './pubsub/pubsub.module';
+import { DataloaderModule } from './dataloader/dataloader.module';
+import { ModuleRef, ContextIdFactory } from '@nestjs/core';
+import { DataloaderService } from './dataloader/dataloader.service';
+import { UserLoader } from './users/loaders/users.loader';
+import { LikeLoader } from './posts/loaders/likes.loader';
+import { PostLoader } from './posts/loaders/posts.loader';
+import { CommentLoader } from './posts/loaders/comments.loader';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
-      isGlobal: true, // Rend ConfigService disponible globalement
-      envFilePath: '.env', // Spécifiez le chemin de votre fichier .env
+      isGlobal: true,
+      envFilePath: '.env',
     }),
-    GraphQLModule.forRoot<ApolloDriverConfig>({ // <--- AJOUTÉ
-      driver: ApolloDriver, // <--- AJOUTÉ: Spécifie le driver Apollo
-      autoSchemaFile: join(process.cwd(), 'src/schema.gql'), // <--- AJOUTÉ: Génère le schéma GraphQL automatiquement
-      sortSchema: true, // <--- AJOUTÉ (Optionnel): Trie le schéma par ordre alphabétique
-      graphiql: true, // <--- AJOUTÉ (Optionnel mais recommandé pour le dev): Active GraphiQL
-      // context: ({ req }) => ({ req }), // Décommentez si vous avez besoin d'accéder à l'objet request (ex: pour l'auth)
-      // formatError: (error) => {
-      //   // Log the full error for server-side debugging (optional)
-      //   // console.error(JSON.stringify(error, null, 2));
-
-      //   let message = error.message;
-      //   const originalErrorMessage = (error.extensions?.originalError as { message?: string })?.message;
-      //   const responseErrorMessage = (error.extensions?.response as { message?: string | string[] })?.message;
-
-      //   if (originalErrorMessage) {
-      //     message = originalErrorMessage;
-      //   } else if (responseErrorMessage) {
-      //     if (Array.isArray(responseErrorMessage)) {
-      //       message = responseErrorMessage.join(', ');
-      //     } else {
-      //       message = responseErrorMessage;
-      //     }
-      //   }
-
-      //   const graphQLFormattedError = {
-      //     message: message, // Now guaranteed to be a string
-      //     code: error.extensions?.code || 'INTERNAL_SERVER_ERROR',
-      //   };
-      //   // Handle cases where class-validator returns an array of messages
-      //   // if (Array.isArray(graphQLFormattedError.message)) {
-      //   //   graphQLFormattedError.message = graphQLFormattedError.message.join(', ');
-      //   // }
-      //   return graphQLFormattedError;
-      // }
-    }), // <--- AJOUTÉ
+    GraphQLModule.forRootAsync<ApolloDriverConfig>({
+      driver: ApolloDriver,
+      imports: [DataloaderModule, AuthModule],
+      inject: [ModuleRef, AuthService],
+      useFactory: (moduleRef: ModuleRef, authService: AuthService) => ({
+        autoSchemaFile: join(process.cwd(), 'src/schema.gql'),
+        installSubscriptionHandlers: true,
+        subscriptions: {
+          'graphql-ws': {
+            onConnect: async (context) => {
+              const { connectionParams, extra } = context;
+              const headers = connectionParams.headers || (extra as any).request.headers;
+              const token = headers?.Authorization?.split('Bearer ')[1] || headers?.authorization?.split('Bearer ')[1];
+              // const token = (connectionParams.Authorization as string)?.split('Bearer ')[1];
+              if (token) {
+                try {
+                  const user = await authService.validateAndLinkUser(token);
+                  (extra as any).user = user;
+                  return { user };
+                } catch (e) {
+                  // Unauthorized
+                   console.error('Invalid token in WS connection:', e);
+                }
+              }
+              return false; // Reject connection
+            },
+          },
+        },
+        sortSchema: true,
+        graphiql: true,
+        context: async (ctx) => {
+          // For HTTP, ctx is { req, res }. For WS, ctx is { connection, extra }.
+          if ('req' in ctx) { // HTTP request
+            const req = ctx.req;
+            const context: any = { req, user: (req as any).user };
+            const contextId = ContextIdFactory.getByRequest(req);
+            const dataloaderService = await moduleRef.resolve(DataloaderService, contextId, { strict: false });
+            const userLoader = await moduleRef.resolve(UserLoader, contextId, { strict: false });
+            const likeLoader = await moduleRef.resolve(LikeLoader, contextId, { strict: false });
+            const postLoader = await moduleRef.resolve(PostLoader, contextId, { strict: false });
+            const commentLoader = await moduleRef.resolve(CommentLoader, contextId, { strict: false });
+            dataloaderService.setLoader(UserLoader, userLoader);
+            dataloaderService.setLoader(LikeLoader, likeLoader);
+            dataloaderService.setLoader(PostLoader, postLoader);
+            dataloaderService.setLoader(CommentLoader, commentLoader);
+            context.dataloaderService = dataloaderService;
+            return context;
+          } else { // WebSocket connection
+            return { user: (ctx.extra as any).user };
+          }
+        },
+      }),
+    }),
     MongooseModule.forRootAsync({
       imports: [ConfigModule],
       useFactory: async (configService: ConfigService) => ({
         uri: configService.get<string>('MONGODB_URI'),
-        // autres options mongoose si besoin
       }),
       inject: [ConfigService],
     }),
@@ -68,8 +95,11 @@ import { EmailModule } from './email/email.module';
     FirebaseModule,
     AdminsModule,
     AdminAuthModule,
-    EmailModule
-
+    EmailModule,
+    PostsModule,
+    NotificationsModule,
+    DataloaderModule,
+    PubSubModule,
   ],
   controllers: [AppController],
   providers: [AppService, AuthService],

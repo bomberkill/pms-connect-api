@@ -16,7 +16,7 @@ import {
   EntityTypeGQL,
   ProfessionalAccreditationObject,
   LocationObject,
-} from '../users.model'; // Import GraphQL types/enums
+} from '../models/users.model'; // Import GraphQL types/enums
 
 @InputType()
 export class ProfessionalAccreditationInput {

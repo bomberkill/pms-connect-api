@@ -1,0 +1,68 @@
+import { Resolver, Mutation, Args, ID, Subscription } from '@nestjs/graphql';
+import { UseGuards, Inject } from '@nestjs/common';
+import { PubSub } from 'graphql-subscriptions';
+import { LikesService } from './likes.service';
+import { FirebaseAuthGuard } from '../auth/guards/firebase-auth.guard';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { UserDocument } from '../users/schemas/users.schema';
+import { LikesUpdate } from './models/likes-update.model';
+import { PUB_SUB } from 'src/pubsub/pubsub.module';
+
+@Resolver()
+export class LikesResolver {
+  constructor(
+    private readonly likesService: LikesService,
+    @Inject(PUB_SUB) private readonly pubSub: PubSub,
+  ) {}
+
+  @UseGuards(FirebaseAuthGuard)
+  @Mutation(() => Boolean, { name: 'likePost' })
+  async likePost(
+    @Args('postId', { type: () => ID }) postId: string,
+    @CurrentUser() user: UserDocument,
+  ): Promise<boolean> {
+    return this.likesService.likeItem(postId, 'Post', user._id.toString());
+  }
+
+  @UseGuards(FirebaseAuthGuard)
+  @Mutation(() => Boolean, { name: 'unlikePost' })
+  async unlikePost(
+    @Args('postId', { type: () => ID }) postId: string,
+    @CurrentUser() user: UserDocument,
+  ): Promise<boolean> {
+    return this.likesService.unlikeItem(postId, 'Post', user._id.toString());
+  }
+
+  @UseGuards(FirebaseAuthGuard)
+  @Mutation(() => Boolean, { name: 'likeComment' })
+  async likeComment(
+    @Args('commentId', { type: () => ID }) commentId: string,
+    @CurrentUser() user: UserDocument,
+  ): Promise<boolean> {
+    return this.likesService.likeItem(commentId, 'Comment', user._id.toString());
+  }
+
+  @UseGuards(FirebaseAuthGuard)
+  @Mutation(() => Boolean, { name: 'unlikeComment' })
+  async unlikeComment(
+    @Args('commentId', { type: () => ID }) commentId: string,
+    @CurrentUser() user: UserDocument,
+  ): Promise<boolean> {
+    return this.likesService.unlikeItem(commentId, 'Comment', user._id.toString());
+  }
+
+  @Subscription(() => LikesUpdate, {
+    name: 'likesUpdated',
+    filter: (payload, variables) =>
+      payload.likesUpdated.likeableId.toString() === variables.likeableId &&
+      payload.likesUpdated.likeableType === variables.likeableType,
+    resolve: (payload) => payload.likesUpdated,
+  })
+  // @UseGuards(FirebaseAuthGuard)
+  likesUpdated(
+    @Args('likeableId', { type: () => ID }) likeableId: string,
+    @Args('likeableType', { type: () => String }) likeableType: string,
+  ) {
+    return this.pubSub.asyncIterableIterator('LIKES_UPDATED');
+  }
+}

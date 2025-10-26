@@ -147,13 +147,16 @@ export class LocationObject {
 export abstract class User {
   // Common fields for both Individual and Legal Entity
   @Field(() => ID, { description: 'Unique identifier for the user (MongoDB ObjectId)' })
-  _id: string;
+  id: string;
 
   @Field(() => ID, { description: "User's unique identifier from Firebase Authentication" })
   firebaseUid: string;
 
   @Field()
   email: string;
+
+  @Field({ description: 'The unique, URL-friendly identifier for the user.' })
+  slug: string;
 
   @Field(() => UserTypeGQL)
   userType: UserTypeGQL;
@@ -193,6 +196,13 @@ export abstract class User {
 
   @Field(() => [ID], { defaultValue: [], description: 'List of blocked user IDs' })
   blockedUsers: string[];
+
+  @Field(() => [String], {defaultValue: []})
+  fcmTokens: string[];
+
+  @Field({defaultValue: 'en'})
+  language: string;
+
 
   @Field(() => GraphQLISODateTime)
   createdAt: Date;
