@@ -41,15 +41,12 @@ export class AdminAuthResolver {
     async resetAdminPassword(
       @Args('resetAdminPasswordInput')
       resetAdminPasswordInput: ResetAdminPasswordInput,
-    ): Promise<AdminUser> {
-      const admin = await this.adminAuthService.performPasswordResetAndNotify(
+    ): Promise<AdminUserDocument> {
+      return this.adminAuthService.performPasswordResetAndNotify(
         resetAdminPasswordInput.token,
         resetAdminPasswordInput.newPassword,
       );
 
-      // Optionally send a confirmation email
-      // await this.adminAuthService.emailService.sendPasswordResetConfirmationEmail(admin.email, admin.name);
-      return admin as unknown as AdminUser;
     }
 
     @Mutation(() => Boolean, { name: 'verifyAdminToken', description: 'Checks if an admin JWT is valid.' })
@@ -63,10 +60,10 @@ export class AdminAuthResolver {
     @Query(() => AdminUser, { name: 'adminMe', description: 'Gets the currently authenticated admin user.' })
     async adminMe(
       @CurrentAdminUser() admin: AdminUserDocument, // Inject the authenticated admin user
-    ): Promise<AdminUser> {
+    ): Promise<AdminUserDocument> {
       // The AdminUserDocument from the guard might contain sensitive fields.
       // Ensure your AdminUser GraphQL model only exposes necessary fields.
-      return admin as unknown as AdminUser; // Cast to the GraphQL model type
+      return admin;
     }
 
 

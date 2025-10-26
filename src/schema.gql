@@ -54,6 +54,57 @@ type CheckUserExistsResponse {
   providers: [String!]!
 }
 
+type Comment {
+  author: User!
+  commentsCount: Int!
+  content: String!
+  createdAt: DateTime!
+  id: ID!
+
+  """
+  Indicates if the current user has liked this comment. Null if no user is logged in.
+  """
+  isLiked: Boolean
+  likesCount: Int!
+  media: [MediaItem]
+  parent: Comment
+  post: Post!
+  status: CommentStatus!
+  updatedAt: DateTime!
+}
+
+"""The status of the comment (e.g., visible or deleted)"""
+enum CommentStatus {
+  DELETED
+  VISIBLE
+}
+
+type ConnectionRequest {
+  createdAt: DateTime!
+  id: ID!
+  recipient: User!
+  requester: User!
+  status: ConnectionRequestStatusGQL!
+  updatedAt: DateTime!
+}
+
+type ConnectionRequestForSubscriptionGQL {
+  createdAt: DateTime!
+  id: ID!
+  recipient: String!
+  requester: String!
+  status: ConnectionRequestStatusGQL!
+  updatedAt: DateTime!
+}
+
+enum ConnectionRequestStatusGQL {
+  ACCEPTED
+  CANCELLED
+  DECLINED
+  PENDING
+  TERMINATED
+}
+
 input CreateAdminUserInput {
   email: String!
   isActive: Boolean = true
@@ -61,6 +112,21 @@ input CreateAdminUserInput {
   password: String!
   permissions: [String!] = []
   roles: [AdminRole!]! = [SUPPORT_AGENT]
+}
+
+input CreateCommentInput {
+  content: String!
+  media: [MediaItemInput]
+  parentId: ID
+  postId: ID!
+}
+
+input CreatePostInput {
+  content: String!
+  media: [MediaItemInput]
+
+  """Defaults to PUBLISHED if not provided."""
+  status: PostStatus
 }
 
 input CreateUserInput {
@@ -98,10 +164,25 @@ enum EntityType {
   PHARMACEUTICAL_COMPANY
 }
 
+type FollowerInfo {
+  """The new number of followers for this user."""
+  followersCount: Int!
+  userId: ID!
+}
+
+type FollowingInfo {
+  """The new number of users this user is following."""
+  followingCount: Int!
+  userId: ID!
+}
+
+type FollowsUpdate {
+  follower: FollowerInfo!
+  following: FollowingInfo!
+}
+
 """Represents an individual healthcare professional."""
 type IndividualUserObject implements User {
-  """Unique identifier for the user (MongoDB ObjectId)"""
-  _id: ID!
   accountStatus: AccountStatus!
   bio: String
 
@@ -113,6 +194,7 @@ type IndividualUserObject implements User {
   coverPicUrl: String
   createdAt: DateTime!
   email: String!
+  fcmTokens: [String!]!
 
   """User's unique identifier from Firebase Authentication"""
   firebaseUid: ID!
@@ -123,6 +205,10 @@ type IndividualUserObject implements User {
 
   """List of user IDs this user is following"""
   following: [ID!]!
+
+  """Unique identifier for the user (MongoDB ObjectId)"""
+  id: ID!
+  language: String!
   lastLoginAt: DateTime
   lastName: String!
 
@@ -136,6 +222,9 @@ type IndividualUserObject implements User {
   professionalTitle: String
   profilePicUrl: String
 
+  """The unique, URL-friendly identifier for the user."""
+  slug: String!
+
   """Medical specialty or field of activity"""
   speciality: Speciality!
   updatedAt: DateTime!
@@ -145,8 +234,6 @@ type IndividualUserObject implements User {
 
 """Represents a legal entity in the healthcare sector."""
 type LegalEntityUserObject implements User {
-  """Unique identifier for the user (MongoDB ObjectId)"""
-  _id: ID!
   accountStatus: AccountStatus!
   bio: String
 
@@ -164,6 +251,7 @@ type LegalEntityUserObject implements User {
 
   """Type of legal entity (e.g., Hospital, Clinic, Association)"""
   entityType: EntityType!
+  fcmTokens: [String!]!
 
   """User's unique identifier from Firebase Authentication"""
   firebaseUid: ID!
@@ -173,6 +261,10 @@ type LegalEntityUserObject implements User {
 
   """List of user IDs this user is following"""
   following: [ID!]!
+
+  """Unique identifier for the user (MongoDB ObjectId)"""
+  id: ID!
+  language: String!
   lastLoginAt: DateTime
 
   """User location details"""
@@ -181,9 +273,18 @@ type LegalEntityUserObject implements User {
   """Professional accreditation documents or details."""
   professionalAccreditation: [ProfessionalAccreditationObject!]
   profilePicUrl: String
+
+  """The unique, URL-friendly identifier for the user."""
+  slug: String!
   updatedAt: DateTime!
   userType: UserType!
   websiteUrl: String
+}
+
+type LikesUpdate {
+  likeableId: ID!
+  likeableType: String!
+  likesCount: Int!
 }
 
 input LocationInput {
@@ -205,23 +306,95 @@ type LocationObject {
   stateOrProvince: String
 }
 
+type MediaItem {
+  type: String!
+  url: String!
+}
+
+input MediaItemInput {
+  type: String!
+  url: String!
+}
+
 type Mutation {
+  acceptConnectionRequest(requestId: ID!): Boolean!
+  addComment(createCommentInput: CreateCommentInput!): Comment!
   adminLogin(adminLoginInput: AdminLoginInput!): AdminLoginResponse!
   createAdminUser(createAdminUserInput: CreateAdminUserInput!): AdminUser!
+  createPost(createPostInput: CreatePostInput!): Post!
   createUser(createUserInput: CreateUserInput!): User!
+  declineOrCancelConnectionRequest(requestId: ID!): Boolean!
+  follow(userId: ID!): Boolean!
+  likeComment(commentId: ID!): Boolean!
+  likePost(postId: ID!): Boolean!
+  markNotificationsAsRead(notificationIds: [ID!]!): Boolean!
+  registerFcmToken(token: String!): Boolean!
+  removeComment(commentId: ID!): Boolean!
+  removeConnection(userIdB: ID!): Boolean!
+  removePost(id: ID!): Boolean!
 
   """Initiates the password reset process for an admin."""
   requestAdminPasswordReset(requestAdminPasswordResetInput: RequestAdminPasswordResetInput!): Boolean!
 
   """Resets the admin password using a token."""
   resetAdminPassword(resetAdminPasswordInput: ResetAdminPasswordInput!): AdminUser!
+  sendConnectionRequest(recipientId: ID!): Boolean!
+  unfollow(userId: ID!): Boolean!
+  unlikeComment(commentId: ID!): Boolean!
+  unlikePost(postId: ID!): Boolean!
+  unregisterFcmToken(token: String!): Boolean!
   updateAccountStatus(updateAccountStatusInput: UpdateAccountStatusInput!): User!
   updateAdminUser(id: ID!, updateAdminUserInput: UpdateAdminUserInput!): AdminUser!
   updateMyProfile(updateUserInput: UpdateUserInput!): User!
+  updatePost(postId: ID!, updatePostInput: UpdatePostInput!): Post!
   updateUserByAdmin(id: ID!, updateUserInput: UpdateUserInput!): User!
 
   """Checks if an admin JWT is valid."""
   verifyAdminToken(verifyAdminTokenInput: VerifyAdminTokenInput!): Boolean!
+}
+
+type Notification {
+  createdAt: DateTime!
+  entityId: ID
+  id: ID!
+  message: String!
+  read: Boolean!
+  sender: User!
+  type: NotificationType!
+}
+
+enum NotificationType {
+  COMMENT_LIKE
+  CONNECTION_ACCEPTED
+  CONNECTION_REQUEST
+  NEW_FOLLOWER
+  POST_COMMENT
+  POST_LIKE
+}
+
+type Post {
+  author: User!
+  commentsCount: Int!
+  content: String!
+  createdAt: DateTime!
+  id: ID!
+
+  """
+  Indicates if the current user has liked this post. Null if no user is logged in.
+  """
+  isLiked: Boolean
+  likesCount: Int!
+  media: [MediaItem]
+  sharesCount: Int!
+  status: PostStatus!
+  updatedAt: DateTime!
+  viewsCount: Int!
+}
+
+"""The status of the post (e.g., published or archived)"""
+enum PostStatus {
+  ARCHIVED
+  PUBLISHED
 }
 
 input ProfessionalAccreditationInput {
@@ -270,8 +443,49 @@ type Query {
     """Filter by user type"""
     userType: UserType
   ): [User!]!
+  getCommentById(id: ID!): Comment
+  getCommentReplies(
+    """Number of items to return"""
+    limit: Int! = 10
+    parentId: ID!
+
+    """Number of items to skip"""
+    skip: Int! = 0
+  ): [Comment!]!
+  getCommentsByPost(
+    """Number of items to return"""
+    limit: Int! = 10
+    postId: ID!
+
+    """Number of items to skip"""
+    skip: Int! = 0
+  ): [Comment!]!
+  getFeed(
+    """Number of items to return"""
+    limit: Int! = 10
+
+    """Number of items to skip"""
+    skip: Int! = 0
+  ): [Post!]!
+  getMyConnectionRequests(
+    """Filter requests by status (e.g., PENDING)"""
+    status: ConnectionRequestStatusGQL
+  ): [ConnectionRequest!]!
+  getMyNotifications(
+    """Number of items to return"""
+    limit: Int! = 10
+
+    """Number of items to skip"""
+    skip: Int! = 0
+  ): [Notification!]!
+  getNewFeedItemsCount(
+    """The ID of the most recent post the user has seen."""
+    since: DateTime!
+  ): Float!
+  getPostById(id: ID!): Post
   getUserByFirebaseUid(firebaseUid: ID!): User
   getUserById(id: ID!): User
+  getUserBySlug(slug: String!): User
   me: User
 }
 
@@ -300,6 +514,14 @@ enum Speciality {
   SANITARY_ENGINEERING
 }
 
+type Subscription {
+  commentAdded(postId: ID!): String!
+  connectionRequestUpdated: ConnectionRequestForSubscriptionGQL
+  followsUpdated(userId: ID!): FollowsUpdate
+  likesUpdated(likeableId: ID!, likeableType: String!): LikesUpdate!
+  notificationAdded: Notification!
+}
+
 input UpdateAccountStatusInput {
   accountStatus: AccountStatus!
   userId: ID!
@@ -311,6 +533,11 @@ input UpdateAdminUserInput {
   name: String
   permissions: [String!]
   roles: [AdminRole!]
+}
+
+input UpdatePostInput {
+  content: String
+  status: PostStatus
 }
 
 input UpdateUserInput {
@@ -330,8 +557,6 @@ input UpdateUserInput {
 
 """Represents a user, can be an individual or a legal entity."""
 interface User {
-  """Unique identifier for the user (MongoDB ObjectId)"""
-  _id: ID!
   accountStatus: AccountStatus!
   bio: String
 
@@ -343,6 +568,7 @@ interface User {
   coverPicUrl: String
   createdAt: DateTime!
   email: String!
+  fcmTokens: [String!]!
 
   """User's unique identifier from Firebase Authentication"""
   firebaseUid: ID!
@@ -352,6 +578,10 @@ interface User {
 
   """List of user IDs this user is following"""
   following: [ID!]!
+
+  """Unique identifier for the user (MongoDB ObjectId)"""
+  id: ID!
+  language: String!
   lastLoginAt: DateTime
 
   """User location details"""
@@ -360,6 +590,9 @@ interface User {
   """Professional accreditation documents or details."""
   professionalAccreditation: [ProfessionalAccreditationObject!]
   profilePicUrl: String
+
+  """The unique, URL-friendly identifier for the user."""
+  slug: String!
   updatedAt: DateTime!
   userType: UserType!
   websiteUrl: String

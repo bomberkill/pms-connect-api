@@ -6,6 +6,7 @@ import { UpdateAdminUserInput } from './dto/update-admin-user.input';
 import { UseGuards } from '@nestjs/common';
 import { AdminAuthGuard } from '../admin-auth/guards/admin-auth.guard'; // Import the guard
 // import { Roles } from '../auth/decorators/roles.decorator';
+import { AdminUserDocument } from './admin-user.schema';
 // import { RolesGuard } from '../auth/guards/roles.guard';
 import { AdminRoleGQL } from './admin-user.model';
 
@@ -21,28 +22,26 @@ export class AdminsResolver {
   @Mutation(() => AdminUser, { name: 'createAdminUser' })
   async createAdminUser(
     @Args('createAdminUserInput') createAdminUserInput: CreateAdminUserInput,
-  ): Promise<AdminUser> {
-    const adminDoc = await this.adminUsersService.create(createAdminUserInput);
-    return adminDoc as unknown as AdminUser;
+  ): Promise<AdminUserDocument> {
+    return this.adminUsersService.create(createAdminUserInput);
   }
 
 //   @UseGuards(AdminAuthGuard)
   @Query(() => [AdminUser], { name: 'allAdminUsers' })
-  async getAllAdminUsers(): Promise<AdminUser[]> {
-    const adminDocs = await this.adminUsersService.findAll();
-    return adminDocs.map((doc) => doc as unknown as AdminUser);
+  async getAllAdminUsers(): Promise<AdminUserDocument[]> {
+    return this.adminUsersService.findAll();
   }
 
   @UseGuards(AdminAuthGuard)
   @Query(() => AdminUser, { name: 'adminUser', nullable: true })
   async getAdminUserById(
     @Args('id', { type: () => ID }) id: string,
-  ): Promise<AdminUser | null> {
+  ): Promise<AdminUserDocument | null> {
     const adminDoc = await this.adminUsersService.findById(id);
     if (!adminDoc) {
       return null;
     }
-    return adminDoc as unknown as AdminUser;
+    return adminDoc;
   }
 
   // @UseGuards(AdminAuthGuard, RolesGuard)
@@ -51,9 +50,8 @@ export class AdminsResolver {
   async updateAdminUser(
     @Args('id', { type: () => ID }) id: string,
     @Args('updateAdminUserInput') updateAdminUserInput: UpdateAdminUserInput,
-  ): Promise<AdminUser> {
-    const adminDoc = await this.adminUsersService.update(id, updateAdminUserInput);
-    return adminDoc as unknown as AdminUser;
+  ): Promise<AdminUserDocument> {
+    return this.adminUsersService.update(id, updateAdminUserInput);
   }
 
   // Add deleteAdminUser mutation (soft or hard delete)

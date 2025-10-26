@@ -1,6 +1,6 @@
 import { InputType, Field, ID } from '@nestjs/graphql';
 import { IsNotEmpty, IsString, IsEnum } from 'class-validator';
-import { AccountStatusGQL } from '../users.model';
+import { AccountStatusGQL } from '../models/users.model';
 
 @InputType()
 export class UpdateAccountStatusInput {

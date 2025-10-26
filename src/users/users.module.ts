@@ -1,14 +1,20 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { UsersResolver } from './users.resolver';
 import { UsersService } from './users.service';
 import { MongooseModule } from '@nestjs/mongoose';
+import { ConnectionRequest, ConnectionRequestSchema } from './schemas/connection-request.schema';
+import { NotificationsModule } from '../notifications/notifications.module';
 import {
   User,
   UserSchema,
   IndividualUserSchema,
   LegalEntityUserSchema,
   UserType, // Import the enum for discriminator keys
-} from './users.schema';
+} from './schemas/users.schema';
+import { UserLoader } from './loaders/users.loader';
+import { ConnectionRequestsService } from './connection-requests.service';
+import { ConnectionRequestsResolver } from './connection-requests.resolver';
+import { PubSubModule } from '../pubsub/pubsub.module';
 
 @Module({
   imports: [
@@ -21,9 +27,13 @@ import {
           { name: UserType.LEGAL_ENTITY, schema: LegalEntityUserSchema },
         ],
       },
+      { name: ConnectionRequest.name, schema: ConnectionRequestSchema }, // Register the ConnectionRequest model
     ]),
+    forwardRef(() => NotificationsModule),
+    PubSubModule,
   ],
-  providers: [UsersResolver, UsersService],
-  exports: [UsersService], // Export if other modules need UsersService (e.g., AuthModule later)
+  providers: [UsersResolver, UsersService, UserLoader, ConnectionRequestsService, ConnectionRequestsResolver],
+  // Export MongooseModule to make UserModel available to other modules that import UsersModule.
+  exports: [UsersService, UserLoader, MongooseModule],
 })
 export class UsersModule {}

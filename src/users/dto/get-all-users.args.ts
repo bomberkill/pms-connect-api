@@ -1,6 +1,6 @@
 import { ArgsType, Field, Int } from '@nestjs/graphql';
 import { IsOptional, Min, IsInt, IsString, IsEnum } from 'class-validator';
-import { UserTypeGQL } from '../users.model';
+import { UserTypeGQL } from '../models/users.model';
 
 @ArgsType()
 export class GetAllUsersArgs {

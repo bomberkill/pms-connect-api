@@ -1,8 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { UsersService } from '../users/users.service';
-import { UserDocument } from '../users/users.schema';
+import { UserDocument } from '../users/schemas/users.schema';
 import * as admin from 'firebase-admin';
-import { SpecialityGQL, UserTypeGQL } from '../users/users.model'; // For default userType
+import { SpecialityGQL, UserTypeGQL } from '../users/models/users.model'; // For default userType
 import { CheckUserExistsResponse } from './auth.model';
 
 

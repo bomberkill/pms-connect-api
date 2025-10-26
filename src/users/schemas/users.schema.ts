@@ -111,8 +111,11 @@ export class User extends Document { // Extend Document for Mongoose typings
   @Prop({ type: String, required: true, unique: true, lowercase: true, trim: true })
   email: string;
 
-//   @Prop({ type: String, enum: Object.values(UserType), required: true })
-//   userType: UserType;
+  @Prop({ type: String, required: true, unique: true, index: true, trim: true })
+  slug: string;
+
+  // This is the discriminator key. It's managed by Mongoose but needs to be declared for TypeScript.
+  userType: UserType;
 
   @Prop({ type: [ProfessionalAccreditationSchema], default: [] })
   professionalAccreditation?: ProfessionalAccreditation[];
@@ -146,6 +149,12 @@ export class User extends Document { // Extend Document for Mongoose typings
 
   @Prop({ type: [{ type: SchemaTypes.ObjectId, ref: 'User' }], default: [] })
   blockedUsers: string[];
+
+  @Prop({ type: [String], default: [] })
+  fcmTokens: string[];
+
+  @Prop({ type: String, default: 'en' }) // Default to English
+  language: string;
 
   // createdAt and updatedAt are handled by timestamps: true
   @Prop({ type: Date })
