@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Document, SchemaTypes } from 'mongoose';
+import { Document, SchemaTypes, Types } from 'mongoose';
 
 // Enums to be used in Mongoose schema, mirroring GraphQL enums
 // It's good practice to define them separately or import if they are shared
@@ -110,6 +110,9 @@ export class User extends Document { // Extend Document for Mongoose typings
 
   @Prop({ type: String, required: true, unique: true, lowercase: true, trim: true })
   email: string;
+
+  @Prop({ type: String, required: true, default: '' })
+  phoneNumber: string;
 
   @Prop({ type: String, required: true, unique: true, index: true, trim: true })
   slug: string;

@@ -48,6 +48,19 @@ type AdminUser {
   updatedAt: DateTime!
 }
 
+type Bookmark {
+  createdAt: DateTime!
+  id: ID!
+  item: BookmarkableItemUnion!
+}
+
+union BookmarkableItemUnion = Comment | Post
+
+enum BookmarkableType {
+  COMMENT
+  POST
+}
+
 type CheckUserExistsResponse {
   exists: Boolean!
   hasPassword: Boolean!
@@ -60,6 +73,11 @@ type Comment {
   content: String!
   createdAt: DateTime!
   id: ID!
+
+  """
+  Indicates if the current user has bookmarked this comment. Null if no user is logged in.
+  """
+  isBookmarked: Boolean
 
   """
   Indicates if the current user has liked this comment. Null if no user is logged in.
@@ -138,6 +156,7 @@ input CreateUserInput {
   firstName: String
   lastName: String
   location: LocationInput
+  phoneNumber: String!
   professionalAccreditation: [ProfessionalAccreditationInput!]
   professionalTitle: String
   profilePicUrl: String
@@ -214,6 +233,7 @@ type IndividualUserObject implements User {
 
   """User location details"""
   location: LocationObject
+  phoneNumber: String!
 
   """Professional accreditation documents or details."""
   professionalAccreditation: [ProfessionalAccreditationObject!]
@@ -269,6 +289,7 @@ type LegalEntityUserObject implements User {
 
   """User location details"""
   location: LocationObject
+  phoneNumber: String!
 
   """Professional accreditation documents or details."""
   professionalAccreditation: [ProfessionalAccreditationObject!]
@@ -318,6 +339,7 @@ input MediaItemInput {
 
 type Mutation {
   acceptConnectionRequest(requestId: ID!): Boolean!
+  addBookmark(itemId: ID!, itemType: BookmarkableType!): Boolean!
   addComment(createCommentInput: CreateCommentInput!): Comment!
   adminLogin(adminLoginInput: AdminLoginInput!): AdminLoginResponse!
   createAdminUser(createAdminUserInput: CreateAdminUserInput!): AdminUser!
@@ -329,6 +351,7 @@ type Mutation {
   likePost(postId: ID!): Boolean!
   markNotificationsAsRead(notificationIds: [ID!]!): Boolean!
   registerFcmToken(token: String!): Boolean!
+  removeBookmark(itemId: ID!): Boolean!
   removeComment(commentId: ID!): Boolean!
   removeConnection(userIdB: ID!): Boolean!
   removePost(id: ID!): Boolean!
@@ -378,6 +401,11 @@ type Post {
   content: String!
   createdAt: DateTime!
   id: ID!
+
+  """
+  Indicates if the current user has bookmarked this post. Null if no user is logged in.
+  """
+  isBookmarked: Boolean
 
   """
   Indicates if the current user has liked this post. Null if no user is logged in.
@@ -433,6 +461,7 @@ type Query {
   adminUser(id: ID!): AdminUser
   allAdminUsers: [AdminUser!]!
   checkUserExistsByEmail(email: String!): CheckUserExistsResponse!
+  checkUserExistsByPhoneNumber(phoneNumber: String!): CheckUserExistsResponse!
   getAllUsers(
     """Number of items to return"""
     limit: Int = 10
@@ -487,6 +516,13 @@ type Query {
   getUserById(id: ID!): User
   getUserBySlug(slug: String!): User
   me: User
+  myBookmarks(
+    """Number of items to return"""
+    limit: Int! = 10
+
+    """Number of items to skip"""
+    skip: Int! = 0
+  ): [Bookmark!]!
 }
 
 input RequestAdminPasswordResetInput {
@@ -548,6 +584,7 @@ input UpdateUserInput {
   firstName: String
   lastName: String
   location: LocationInput
+  phoneNumber: String
   professionalAccreditation: [ProfessionalAccreditationInput!]
   professionalTitle: String
   profilePicUrl: String
@@ -586,6 +623,7 @@ interface User {
 
   """User location details"""
   location: LocationObject
+  phoneNumber: String!
 
   """Professional accreditation documents or details."""
   professionalAccreditation: [ProfessionalAccreditationObject!]

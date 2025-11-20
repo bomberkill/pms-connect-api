@@ -14,20 +14,22 @@ import { CommentsService } from './comments.service';
 import { LikesService } from './likes.service';
 import { LikesResolver } from './likes.resolver';
 import { CommentLoader } from './loaders/comments.loader';
+import { BookmarksModule } from 'src/bookmarks/bookmarks.module';
 
 @Module({
   imports: [
-    MongooseModule.forFeature([
+    MongooseModule.forFeature([ // On garde cette ligne pour l'enregistrer dans le scope du module courant
       { name: Post.name, schema: PostSchema },
       { name: Like.name, schema: LikeSchema },
       { name: Comment.name, schema: CommentSchema },
     ]),
-    // forwardRef est utilisé pour résoudre les dépendances circulaires
-    // PostsModule a besoin de NotificationsModule, et NotificationsModule a besoin de PostsModule
     forwardRef(() => NotificationsModule),
-    forwardRef(() => UsersModule), // Importer UsersModule pour avoir accès à UserLoader
+    forwardRef(() => UsersModule),
+    forwardRef(() => BookmarksModule), // Importer BookmarksModule pour le champ isBookmarked
   ],
   providers: [PostsService, CommentsService, LikesService, PostsResolver, CommentsResolver, LikesResolver, PostLoader, LikeLoader, CommentLoader],
-  exports: [PostsService, PostLoader, LikeLoader, CommentLoader], // Exporter pour que d'autres modules puissent l'utiliser
+  // On exporte MongooseModule pour que les autres modules (comme UsersModule)
+  // aient connaissance des modèles Post et Comment.
+  exports: [PostsService, PostLoader, LikeLoader, CommentLoader,CommentsService, MongooseModule], 
 })
 export class PostsModule {}

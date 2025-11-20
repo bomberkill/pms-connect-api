@@ -49,6 +49,9 @@ export class Post {
   @Field(() => Boolean, { nullable: true, description: "Indicates if the current user has liked this post. Null if no user is logged in." })
   isLiked?: boolean;
 
+  @Field(() => Boolean, { nullable: true, description: "Indicates if the current user has bookmarked this post. Null if no user is logged in." })
+  isBookmarked?: boolean;
+
   @Field(() => [MediaItem], { nullable: 'itemsAndList' })
   media?: MediaItem[];
 

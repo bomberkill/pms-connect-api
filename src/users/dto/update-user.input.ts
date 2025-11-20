@@ -32,6 +32,11 @@ export class UpdateUserInput extends PartialType(
   @Field({ nullable: true })
   @IsOptional()
   @IsString()
+  phoneNumber?: string;
+
+  @Field({ nullable: true })
+  @IsOptional()
+  @IsString()
   coverPicUrl?: string;
 
   @Field({ nullable: true })

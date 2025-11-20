@@ -72,6 +72,11 @@ export class CreateUserInput {
   @IsEmail()
   email: string; // Required from Firebase Auth
 
+  @Field()
+  @IsNotEmpty()
+  @IsString()
+  phoneNumber: string;
+
   @Field(() => UserTypeGQL)
   @IsEnum(UserTypeGQL)
   userType: UserTypeGQL;

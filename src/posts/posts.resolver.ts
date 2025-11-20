@@ -1,5 +1,6 @@
 import { Resolver, Query, Mutation, Args, ID, Parent, ResolveField } from '@nestjs/graphql';
 import { UseGuards, forwardRef, Inject } from '@nestjs/common';
+import { BookmarkLoader } from 'src/bookmarks/loaders/bookmarks.loader';
 import { PostsService } from './posts.service';
 import { Post } from './models/posts.model';
 import { CreatePostInput } from './dto/create-post.input';
@@ -17,7 +18,9 @@ import { Date } from 'mongoose';
 
 @Resolver(() => Post)
 export class PostsResolver {
-  constructor(private readonly postsService: PostsService) {}
+  constructor(
+    private readonly postsService: PostsService,
+  ) {}
 
   @UseGuards(FirebaseAuthGuard)
   @Mutation(() => Post, { name: 'createPost' })
@@ -126,5 +129,20 @@ export class PostsResolver {
     }
     // Le DataLoader va regrouper tous les post.id et vérifier en une seule fois.
     return likeLoader.load({ likeableId: post._id.toString(), likeableType: 'Post', userId: user._id.toString() });
+  }
+
+  @ResolveField('isBookmarked', () => Boolean, { nullable: true })
+  async isBookmarked(
+    @Parent() post: PostDocument,
+    @CurrentUser() user: UserDocument | null,
+    @Dataloader(BookmarkLoader) bookmarkLoader: BookmarkLoader,
+  ): Promise<boolean | null> {
+    if (!user) {
+      return null;
+    }
+    return bookmarkLoader.load({
+      userId: user._id.toString(),
+      itemId: post._id.toString(),
+    });
   }
 }

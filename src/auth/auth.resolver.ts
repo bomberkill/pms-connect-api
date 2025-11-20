@@ -12,4 +12,11 @@ export class AuthResolver {
   ): Promise<{exists: boolean, hasPassword: boolean, providers: string[]}> {
     return this.authService.checkUserExistsByEmail(email);
   }
+
+  @Query(() => CheckUserExistsResponse, { name: 'checkUserExistsByPhoneNumber' })
+  async checkUserExistsByPhoneNumber(
+    @Args('phoneNumber', { type: () => String }) phoneNumber: string,
+  ): Promise<CheckUserExistsResponse> {
+    return this.authService.checkUserExistsByPhoneNumber(phoneNumber);
+  }
 }

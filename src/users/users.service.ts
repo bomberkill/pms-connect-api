@@ -10,7 +10,7 @@ import {
   IndividualUser, // Import discriminator models
   LegalEntityUser, // Import discriminator models
   UserType, // Import UserType enum
-} from './schemas/users.schema'; // Import Mongoose schema/types
+} from './schemas/users.schema';
 import { CreateUserInput } from './dto/create-user.input'; // Import the DTO
 import { UserTypeGQL } from './models/users.model';
 import { UpdateUserInput } from './dto/update-user.input';
@@ -85,6 +85,7 @@ export class UsersService {
       filters.userType = userType;
     }
 
+    // Populate bookmarks for a full user object response
     return this.userModel.find(filters).skip(skip).limit(limit).exec();
   }
 
@@ -94,11 +95,15 @@ export class UsersService {
    * @returns A list of users.
    */
   async findManyByIds(ids: string[]): Promise<UserDocument[]> {
+    // Populate bookmarks for a full user object response
     return this.userModel.find({ _id: { $in: ids } }).exec();
   }
 
   async findByFirebaseUid(firebaseUid: string): Promise<UserDocument | null> {
-    return this.userModel.findOne({ firebaseUid }).exec();
+    // Populate bookmarks for a full user object response
+    const result = await this.userModel.findOne({ firebaseUid }).exec()
+    // console.log('findByFirebaseUid service:', result)
+    return result;
   }
 
   async findById(id: string): Promise<UserDocument | null> {
@@ -106,7 +111,7 @@ export class UsersService {
   }
 
   async findBySlug(slug: string): Promise<UserDocument | null> {
-    return this.userModel.findOne({ slug }).exec();
+    return this.userModel.findOne({ slug }).populate('bookmarks.item').exec();
   }
 
   async update(

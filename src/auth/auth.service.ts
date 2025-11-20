@@ -101,4 +101,32 @@ export class AuthService {
       }
     }
 
+    /**
+     * Checks if a user exists in Firebase Authentication using their phone number.
+     * @param phoneNumber The phone number to check (must be in E.164 format).
+     * @returns An object indicating if the user exists and their sign-in providers.
+     */
+    async checkUserExistsByPhoneNumber(phoneNumber: string): Promise<CheckUserExistsResponse> {
+      try {
+        const user = await admin.auth().getUserByPhoneNumber(phoneNumber);
+
+        // Liste des providers associés
+        const providers = user.providerData.map((p) => p.providerId);
+
+        // Vérifie si 'password' fait partie des providers
+        const hasPassword = providers.includes("password");
+
+        return {
+          exists: true,
+          hasPassword,
+          providers,
+        };
+      } catch (error: any) {
+        if (error.code === "auth/user-not-found") {
+          return { exists: false, hasPassword: false, providers: [] };
+        }
+        // Pour les autres erreurs (numéro invalide, etc.), il est préférable de les lancer
+        throw error;
+      }
+    }
   }
