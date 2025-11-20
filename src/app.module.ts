@@ -23,6 +23,8 @@ import { UserLoader } from './users/loaders/users.loader';
 import { LikeLoader } from './posts/loaders/likes.loader';
 import { PostLoader } from './posts/loaders/posts.loader';
 import { CommentLoader } from './posts/loaders/comments.loader';
+import { BookmarkLoader } from './bookmarks/loaders/bookmarks.loader';
+import { BookmarksModule } from './bookmarks/bookmarks.module';
 
 @Module({
   imports: [
@@ -32,7 +34,7 @@ import { CommentLoader } from './posts/loaders/comments.loader';
     }),
     GraphQLModule.forRootAsync<ApolloDriverConfig>({
       driver: ApolloDriver,
-      imports: [DataloaderModule, AuthModule],
+      imports: [DataloaderModule, AuthModule, BookmarksModule],
       inject: [ModuleRef, AuthService],
       useFactory: (moduleRef: ModuleRef, authService: AuthService) => ({
         autoSchemaFile: join(process.cwd(), 'src/schema.gql'),
@@ -71,10 +73,12 @@ import { CommentLoader } from './posts/loaders/comments.loader';
             const likeLoader = await moduleRef.resolve(LikeLoader, contextId, { strict: false });
             const postLoader = await moduleRef.resolve(PostLoader, contextId, { strict: false });
             const commentLoader = await moduleRef.resolve(CommentLoader, contextId, { strict: false });
+            const bookmarkLoader = await moduleRef.resolve(BookmarkLoader, contextId, { strict: false });
             dataloaderService.setLoader(UserLoader, userLoader);
             dataloaderService.setLoader(LikeLoader, likeLoader);
             dataloaderService.setLoader(PostLoader, postLoader);
             dataloaderService.setLoader(CommentLoader, commentLoader);
+            dataloaderService.setLoader(BookmarkLoader, bookmarkLoader);
             context.dataloaderService = dataloaderService;
             return context;
           } else { // WebSocket connection
@@ -100,6 +104,7 @@ import { CommentLoader } from './posts/loaders/comments.loader';
     NotificationsModule,
     DataloaderModule,
     PubSubModule,
+    BookmarksModule,
   ],
   controllers: [AppController],
   providers: [AppService, AuthService],

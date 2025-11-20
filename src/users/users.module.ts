@@ -15,6 +15,7 @@ import { UserLoader } from './loaders/users.loader';
 import { ConnectionRequestsService } from './connection-requests.service';
 import { ConnectionRequestsResolver } from './connection-requests.resolver';
 import { PubSubModule } from '../pubsub/pubsub.module';
+import { PostsModule } from 'src/posts/posts.module';
 
 @Module({
   imports: [
@@ -30,6 +31,7 @@ import { PubSubModule } from '../pubsub/pubsub.module';
       { name: ConnectionRequest.name, schema: ConnectionRequestSchema }, // Register the ConnectionRequest model
     ]),
     forwardRef(() => NotificationsModule),
+    forwardRef(() => PostsModule), // Importer PostsModule pour rendre les modèles Post et Comment disponibles
     PubSubModule,
   ],
   providers: [UsersResolver, UsersService, UserLoader, ConnectionRequestsService, ConnectionRequestsResolver],

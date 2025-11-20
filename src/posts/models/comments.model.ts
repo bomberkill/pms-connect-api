@@ -43,6 +43,9 @@ export class Comment {
   @Field(() => Boolean, { nullable: true, description: "Indicates if the current user has liked this comment. Null if no user is logged in." })
   isLiked?: boolean;
 
+  @Field(() => Boolean, { nullable: true, description: "Indicates if the current user has bookmarked this comment. Null if no user is logged in." })
+  isBookmarked?: boolean;
+
   @Field(() => CommentStatus)
   status: CommentStatus;
 }

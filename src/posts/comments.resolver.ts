@@ -19,6 +19,7 @@ import { CurrentUser } from 'src/auth/decorators/current-user.decorator';
 import { FirebaseAuthGuard } from 'src/auth/guards/firebase-auth.guard';
 import { PaginationArgs } from './dto/pagination.args';
 import { PUB_SUB } from 'src/pubsub/pubsub.module';
+import { BookmarkLoader } from 'src/bookmarks/loaders/bookmarks.loader';
 import { CommentsService } from './comments.service';
 
 @Resolver(() => Comment)
@@ -142,5 +143,20 @@ export class CommentsResolver {
     }
     const key: LikeLoaderKey = { likeableId: comment._id.toString(), likeableType: 'Comment', userId: user._id.toString() };
     return likeLoader.load(key);
+  }
+
+  @ResolveField('isBookmarked', () => Boolean, { nullable: true })
+  async isBookmarked(
+    @Parent() comment: CommentDocument,
+    @CurrentUser() user: UserDocument | null,
+    @Dataloader(BookmarkLoader) bookmarkLoader: BookmarkLoader,
+  ): Promise<boolean | null> {
+    if (!user) {
+      return null;
+    }
+    return bookmarkLoader.load({
+      userId: user._id.toString(),
+      itemId: comment._id.toString(),
+    });
   }
 }

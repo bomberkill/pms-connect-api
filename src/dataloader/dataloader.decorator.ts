@@ -1,7 +1,6 @@
 import { createParamDecorator, ExecutionContext, Type } from '@nestjs/common';
 import { GqlExecutionContext } from '@nestjs/graphql';
 import * as DataLoader from 'dataloader';
-import { DataloaderService } from './dataloader.service';
 
 /**
  * A parameter decorator to inject a DataLoader instance.

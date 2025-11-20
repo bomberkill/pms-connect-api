@@ -7,6 +7,7 @@ import {
   GraphQLISODateTime,
 } from '@nestjs/graphql';
 
+
 export enum UserTypeGQL {
   INDIVIDUAL = 'INDIVIDUAL',
   LEGAL_ENTITY = 'LEGAL_ENTITY',
@@ -154,6 +155,9 @@ export abstract class User {
 
   @Field()
   email: string;
+
+  @Field()
+  phoneNumber: string;
 
   @Field({ description: 'The unique, URL-friendly identifier for the user.' })
   slug: string;

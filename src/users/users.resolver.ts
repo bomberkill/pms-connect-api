@@ -1,6 +1,6 @@
-import { Resolver, Query, Mutation, Args, ID, Context, Subscription } from '@nestjs/graphql';
+import { Resolver, Query, Mutation, Args, ID, Context, Subscription, ResolveField, Parent } from '@nestjs/graphql';
 import { UsersService } from './users.service';
-import { User, UserTypeGQL } from './models/users.model'; // Import the base GraphQL User model/interface
+import { User } from './models/users.model'; // Import the base GraphQL User model/interface
 import { CreateUserInput } from './dto/create-user.input';
 import { UseGuards, BadRequestException, Inject } from '@nestjs/common';
 import { PubSub } from 'graphql-subscriptions';
@@ -176,7 +176,8 @@ export class UsersResolver {
     return this.usersService.manageFcmToken(currentUser._id.toString(), token, 'remove');
   }
 
-  @Subscription(() => FollowsUpdate, {
+  @UseGuards(FirebaseAuthGuard)
+    @Subscription(() => FollowsUpdate, {
     name: 'followsUpdated',
     nullable: true,
     filter: (payload, variables) => {
