@@ -9,7 +9,7 @@ export class AuthResolver {
   @Query(() => CheckUserExistsResponse, { name: 'checkUserExistsByEmail' })
   async checkUserExistsByEmail(
     @Args('email', { type: () => String }) email: string,
-  ): Promise<{exists: boolean, hasPassword: boolean, providers: string[]}> {
+  ): Promise<CheckUserExistsResponse> {
     return this.authService.checkUserExistsByEmail(email);
   }
 

@@ -5,5 +5,5 @@ export interface CreateNotificationDto {
   sender: string;
   type: NotificationType;
   entityId?: string;
-  onModel?: 'Post' | 'User' | 'Comment';
+  onModel?: 'Post' | 'User' | 'Comment' | 'Group';
 }

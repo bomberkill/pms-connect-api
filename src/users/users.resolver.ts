@@ -14,6 +14,7 @@ import { GetAllUsersArgs } from './dto/get-all-users.args';
 import { CombinedAuthGuard } from '../auth/guards/combined-auth.guard';
 import { FollowsUpdate } from './models/follower-count-update.model';
 import { PUB_SUB } from '../pubsub/pubsub.module';
+import { GqlWsAuthGuard } from 'src/auth/guards/gql-ws-auth.guard';
 
 
 @Resolver(() => User) // Specify User as the base type this resolver handles
@@ -93,6 +94,16 @@ export class UsersResolver {
     @CurrentUser() currentUser: UserDocument,
   ): Promise<UserDocument> {
     return this.usersService.update(currentUser._id.toString(), updateUserInput);
+  }
+
+  @UseGuards(FirebaseAuthGuard)
+  @Mutation(() => User, { name: 'updateMyEmail', description: "Updates the authenticated user's email address." })
+  async updateMyEmail(
+    @Args('newEmail', { type: () => String }) newEmail: string,
+    @CurrentUser() currentUser: UserDocument,
+  ): Promise<UserDocument> {
+    // The service handles updating both Firebase and the local database
+    return this.usersService.updateEmail(currentUser, newEmail);
   }
 
   @UseGuards(AdminAuthGuard)
@@ -176,7 +187,7 @@ export class UsersResolver {
     return this.usersService.manageFcmToken(currentUser._id.toString(), token, 'remove');
   }
 
-  @UseGuards(FirebaseAuthGuard)
+  @UseGuards(GqlWsAuthGuard)
     @Subscription(() => FollowsUpdate, {
     name: 'followsUpdated',
     nullable: true,

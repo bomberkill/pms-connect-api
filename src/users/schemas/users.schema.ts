@@ -159,6 +159,9 @@ export class User extends Document { // Extend Document for Mongoose typings
   @Prop({ type: String, default: 'en' }) // Default to English
   language: string;
 
+  @Prop({ type: [String], required: true, default: [] })
+  providers: string[];
+
   // createdAt and updatedAt are handled by timestamps: true
   @Prop({ type: Date })
   lastLoginAt?: Date;

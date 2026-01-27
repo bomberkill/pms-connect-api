@@ -77,6 +77,12 @@ export class CreateUserInput {
   @IsString()
   phoneNumber: string;
 
+  @Field(() => [String], { description: 'Authentication providers used for sign-up (e.g., ["password"], ["google.com"])' })
+  @IsArray()
+  @IsString({ each: true })
+  @IsNotEmpty({ each: true })
+  providers: string[];
+
   @Field(() => UserTypeGQL)
   @IsEnum(UserTypeGQL)
   userType: UserTypeGQL;

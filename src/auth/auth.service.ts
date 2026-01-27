@@ -39,32 +39,6 @@ export class AuthService {
       }
   
       let user = await this.usersService.findByFirebaseUid(uid);
-  
-      // if (!user) {
-      //   // If user doesn't exist, create a basic profile.
-      //   // You might want to prompt the user for more details (like userType) on the client-side
-      //   // after their first login, or have a default.
-      //   // For now, let's assume a default or that this info might come from custom claims.
-      //   try {
-      //     user = await this.usersService.create({
-      //       // firebaseUid: uid,
-      //       email: email,
-      //       // Defaulting userType, this should ideally be determined more robustly
-      //       userType: UserTypeGQL.INDIVIDUAL, // Or based on custom claims
-      //       // profilePicUrl: picture,
-      //       // // For INDIVIDUAL, firstName/lastName might be derived from 'name' or be empty initially
-      //       firstName: 'firstname', // Basic default
-      //       lastName: 'lastname', // Basic default
-      //       speciality: SpecialityGQL.NURSES
-      //     }, uid);
-      //     // return newUser;
-      //   } catch (error) {
-      //     // Handle potential creation errors (e.g., duplicate email if not handled by findByFirebaseUid first)
-      //     console.error('Error creating user during Firebase link:', error);
-      //     return null;
-      //   }
-      // }
-      // return user;
       return user || { firebaseUid: uid };
     }
 
@@ -75,30 +49,15 @@ export class AuthService {
    * @returns `true` if the user exists, `false` otherwise.
    */
     async checkUserExistsByEmail(email: string): Promise<CheckUserExistsResponse> {
-      try {
-        const user = await admin.auth().getUserByEmail(email);
-
-        // Liste des providers associés
-        const providers = user.providerData.map((p) => p.providerId);
-
-        // Vérifie si 'password' fait partie des providers
-        const hasPassword = providers.includes("password");
-
-        return {
-          exists: true,
-          hasPassword,
-          providers,
-        };
-      } catch (error: any) {
-        if (error.code === "auth/user-not-found") {
-          return {
-            exists: false,
-            hasPassword: false,
-            providers: [],
-          };
-        }
-        throw error; // Autres erreurs (ex: réseau, permission, etc.)
+      // La source de vérité est notre base de données, pas Firebase.
+      const user = await this.usersService.findByEmail(email);
+      if (!user) {
+        return { exists: false, hasPassword: false, providers: [] };
       }
+
+      const hasPassword = user.providers.includes('password');
+
+      return { exists: true, hasPassword, providers: user.providers };
     }
 
     /**
@@ -107,26 +66,49 @@ export class AuthService {
      * @returns An object indicating if the user exists and their sign-in providers.
      */
     async checkUserExistsByPhoneNumber(phoneNumber: string): Promise<CheckUserExistsResponse> {
-      try {
-        const user = await admin.auth().getUserByPhoneNumber(phoneNumber);
-
-        // Liste des providers associés
-        const providers = user.providerData.map((p) => p.providerId);
-
-        // Vérifie si 'password' fait partie des providers
-        const hasPassword = providers.includes("password");
-
-        return {
-          exists: true,
-          hasPassword,
-          providers,
-        };
-      } catch (error: any) {
-        if (error.code === "auth/user-not-found") {
-          return { exists: false, hasPassword: false, providers: [] };
-        }
-        // Pour les autres erreurs (numéro invalide, etc.), il est préférable de les lancer
-        throw error;
+      // La source de vérité est notre base de données, pas Firebase.
+      // Note: Assurez-vous que la méthode findByPhoneNumber existe dans UsersService
+      // et qu'elle gère correctement la normalisation des numéros si nécessaire.
+      const user = await this.usersService.findByPhoneNumber(phoneNumber);
+      if (!user) {
+        return { exists: false, hasPassword: false, providers: [] };
       }
+
+      const hasPassword = user.providers.includes('password');
+
+      return { exists: true, hasPassword, providers: user.providers };
     }
+
+      /**
+   * Checks if a user exists in Firebase Authentication using their email.
+   * This uses the Admin SDK and is not subject to email enumeration protection.
+   * @param email The email to check.
+   * @returns `true` if the user exists, `false` otherwise.
+   */
+    // async checkUserExistsByEmail(email: string): Promise<CheckUserExistsResponse> {
+    //   try {
+    //     const user = await admin.auth().getUserByEmail(email);
+
+    //     // Liste des providers associés
+    //     const providers = user.providerData.map((p) => p.providerId);
+
+    //     // Vérifie si 'password' fait partie des providers
+    //     const hasPassword = providers.includes("password");
+
+    //     return {
+    //       exists: true,
+    //       hasPassword,
+    //       providers,
+    //     };
+    //   } catch (error: any) {
+    //     if (error.code === "auth/user-not-found") {
+    //       return {
+    //         exists: false,
+    //         hasPassword: false,
+    //         providers: [],
+    //       };
+    //     }
+    //     throw error; // Autres erreurs (ex: réseau, permission, etc.)
+    //   }
+    // }
   }

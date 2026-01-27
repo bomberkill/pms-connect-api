@@ -25,6 +25,7 @@ import { PostLoader } from './posts/loaders/posts.loader';
 import { CommentLoader } from './posts/loaders/comments.loader';
 import { BookmarkLoader } from './bookmarks/loaders/bookmarks.loader';
 import { BookmarksModule } from './bookmarks/bookmarks.module';
+import { GroupsModule } from './groups/groups.module';
 
 @Module({
   imports: [
@@ -42,21 +43,29 @@ import { BookmarksModule } from './bookmarks/bookmarks.module';
         subscriptions: {
           'graphql-ws': {
             onConnect: async (context) => {
-              const { connectionParams, extra } = context;
-              const headers = connectionParams.headers || (extra as any).request.headers;
-              const token = headers?.Authorization?.split('Bearer ')[1] || headers?.authorization?.split('Bearer ')[1];
-              // const token = (connectionParams.Authorization as string)?.split('Bearer ')[1];
-              if (token) {
+              const { connectionParams, extra } = context; // extra contiendra les données persistantes pour cette connexion WS
+
+              // Le client envoie { headers: { Authorization: 'Bearer <token>' } }
+              // Nous devons donc extraire le token de cet objet.
+              const authorizationHeader = (connectionParams?.headers as any)?.Authorization || (connectionParams?.headers as any)?.authorization;
+
+              if (authorizationHeader && typeof authorizationHeader === 'string') {
+                const token = authorizationHeader.replace('Bearer ', '');
                 try {
+                  // Valider le token et récupérer l'utilisateur
                   const user = await authService.validateAndLinkUser(token);
+                  // Attacher l'utilisateur au contexte de la connexion WebSocket
                   (extra as any).user = user;
                   return { user };
                 } catch (e) {
-                  // Unauthorized
-                   console.error('Invalid token in WS connection:', e);
+                  console.error('Subscription authentication failed:', e.message);
+                  // Rejeter la connexion si le token est invalide
+                  return false;
                 }
               }
-              return false; // Reject connection
+
+              // Rejeter la connexion si aucun token n'est fourni
+              return false;
             },
           },
         },
@@ -82,7 +91,10 @@ import { BookmarksModule } from './bookmarks/bookmarks.module';
             context.dataloaderService = dataloaderService;
             return context;
           } else { // WebSocket connection
-            return { user: (ctx.extra as any).user };
+            // Pour les souscriptions, le contexte est peuplé par onConnect.
+            // 'extra' contient les données persistantes de la connexion WebSocket.
+            // Nous retournons l'objet `extra` pour que `context.user` soit accessible.
+            return ctx.extra;
           }
         },
       }),
@@ -91,6 +103,7 @@ import { BookmarksModule } from './bookmarks/bookmarks.module';
       imports: [ConfigModule],
       useFactory: async (configService: ConfigService) => ({
         uri: configService.get<string>('MONGODB_URI'),
+        dbName: "pmsconnectdb"
       }),
       inject: [ConfigService],
     }),
@@ -105,6 +118,7 @@ import { BookmarksModule } from './bookmarks/bookmarks.module';
     DataloaderModule,
     PubSubModule,
     BookmarksModule,
+    GroupsModule,
   ],
   controllers: [AppController],
   providers: [AppService, AuthService],

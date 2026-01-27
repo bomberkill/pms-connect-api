@@ -9,6 +9,9 @@ export enum NotificationType {
   POST_LIKE = 'POST_LIKE',
   COMMENT_LIKE = 'COMMENT_LIKE',
   POST_COMMENT = 'POST_COMMENT',
+  GROUP_JOIN_REQUEST = 'GROUP_JOIN_REQUEST',
+  GROUP_JOIN_REQUEST_ACCEPTED = 'GROUP_JOIN_REQUEST_ACCEPTED',
+  GROUP_INVITATION = 'GROUP_INVITATION',
   
 }
 
@@ -32,7 +35,7 @@ export class Notification {
   @Prop({ type: SchemaTypes.ObjectId, refPath: 'onModel' })
   entityId: string;
 
-  @Prop({ type: String, enum: ['Post', 'User', 'Comment'] })
+  @Prop({ type: String, enum: ['Post', 'User', 'Comment', 'Group'] })
   onModel: string;
 
   @Prop({ type: Boolean, default: false, index: true })

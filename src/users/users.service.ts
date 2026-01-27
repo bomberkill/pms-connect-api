@@ -114,6 +114,23 @@ export class UsersService {
     return this.userModel.findOne({ slug }).populate('bookmarks.item').exec();
   }
 
+  /**
+   * Finds a user by their email address.
+   * @param email The email to search for.
+   * @returns A user document or null.
+   */
+  async findByEmail(email: string): Promise<UserDocument | null> {
+    // Emails are stored in lowercase, so the search should also be case-insensitive.
+    return this.userModel.findOne({ email: email.toLowerCase() }).exec();
+  }
+
+  /**
+   * Finds a user by their phone number.
+   * @param phoneNumber The phone number to search for.
+   */
+  async findByPhoneNumber(phoneNumber: string): Promise<UserDocument | null> {
+    return this.userModel.findOne({ phoneNumber }).exec();
+  }
   async update(
     userId: string, // This should be the MongoDB _id of the user to update
     updateUserInput: UpdateUserInput,
@@ -151,6 +168,34 @@ export class UsersService {
       throw new NotFoundException(`User with ID "${userId}" not found`);
     }
     return existingUser;
+  }
+
+  async updateEmail(currentUser: UserDocument, newEmail: string): Promise<UserDocument> {
+    const normalizedNewEmail = newEmail.toLowerCase().trim();
+
+    if (currentUser.email === normalizedNewEmail) {
+      // Pas de changement, on retourne l'utilisateur actuel.
+      return currentUser;
+    }
+
+    // 1. Vérifier si le nouvel e-mail est déjà utilisé par un AUTRE utilisateur.
+    const existingUser = await this.userModel.findOne({
+      email: normalizedNewEmail,
+      firebaseUid: { $ne: currentUser.firebaseUid }, // On s'assure que ce n'est pas le même utilisateur
+    }).exec();
+
+    if (existingUser) {
+      throw new ConflictException('This email address is already in use.');
+    }
+
+    // 2. Mettre à jour l'e-mail dans la base de données pour l'utilisateur identifié par son firebaseUid.
+    const updatedUser = await this.userModel.findOneAndUpdate(
+      { firebaseUid: currentUser.firebaseUid },
+      { $set: { email: normalizedNewEmail } },
+      { new: true }, // Retourne le document mis à jour
+    ).exec();
+
+    return updatedUser;
   }
 
   async updateAccountStatus(

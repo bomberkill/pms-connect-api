@@ -207,6 +207,8 @@ export abstract class User {
   @Field({defaultValue: 'en'})
   language: string;
 
+  @Field(() => [String], { description: 'Authentication providers used by the user (e.g., password, google.com)' })
+  providers: string[];
 
   @Field(() => GraphQLISODateTime)
   createdAt: Date;
