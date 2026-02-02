@@ -1,4 +1,9 @@
-import { Injectable, NotFoundException, ForbiddenException, Inject } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  ForbiddenException,
+  Inject,
+} from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Date, Model } from 'mongoose';
 import { Post, PostDocument, PostStatus } from './schemas/posts.schema'; // Corrected path if needed
@@ -7,7 +12,6 @@ import { CreatePostInput } from './dto/create-post.input';
 import { PaginationArgs } from './dto/pagination.args';
 import { UpdatePostInput } from './dto/update-post.input';
 import { NotificationsService } from '../notifications/notifications.service';
-import { NotificationType } from '../notifications/schemas/notification.schema';
 import { PUB_SUB } from 'src/pubsub/pubsub.module';
 import { PubSub } from 'graphql-subscriptions';
 import { CommentsService } from './comments.service';
@@ -24,8 +28,11 @@ export class PostsService {
   ) {}
 
   // Note: For transactions to work, you must be connected to a MongoDB replica set.
-  
-  async create(createPostInput: CreatePostInput, authorId: string): Promise<PostDocument> {
+
+  async create(
+    createPostInput: CreatePostInput,
+    authorId: string,
+  ): Promise<PostDocument> {
     const newPost = new this.postModel({
       ...createPostInput,
       author: authorId,
@@ -34,7 +41,7 @@ export class PostsService {
   }
 
   async findManyByIds(ids: readonly string[]): Promise<PostDocument[]> {
-    return this.postModel.find({_id: {$in:ids}}).exec()
+    return this.postModel.find({ _id: { $in: ids } }).exec();
   }
 
   async findOne(id: string): Promise<PostDocument> {
@@ -45,7 +52,11 @@ export class PostsService {
     return post;
   }
 
-  async update(id: string, userId: string, updatePostInput: UpdatePostInput): Promise<PostDocument> {
+  async update(
+    id: string,
+    userId: string,
+    updatePostInput: UpdatePostInput,
+  ): Promise<PostDocument> {
     const post = await this.postModel.findById(id);
 
     if (!post) {
@@ -82,18 +93,24 @@ export class PostsService {
     await this.postModel.findByIdAndUpdate(id, {
       $set: {
         status: PostStatus.ARCHIVED,
-        content: '[This post has been deleted]'
-      }
+        content: '[This post has been deleted]',
+      },
     });
 
     // Find all top-level comments for this post
-    const topLevelComments = await this.commentsService.findCommentsByPost(id, { skip: 0, limit: Number.MAX_SAFE_INTEGER });
+    const topLevelComments = await this.commentsService.findCommentsByPost(id, {
+      skip: 0,
+      limit: Number.MAX_SAFE_INTEGER,
+    });
 
     // Trigger cascading soft-delete for each top-level comment
     for (const comment of topLevelComments) {
       // We can call this without checking ownership again, as it's an internal, trusted action.
       // The `removeComment` method will start the recursive deletion.
-      await this.commentsService.removeComment(comment._id.toString(), comment.author.toString());
+      await this.commentsService.removeComment(
+        comment._id.toString(),
+        comment.author.toString(),
+      );
     }
 
     return true;
@@ -105,7 +122,10 @@ export class PostsService {
    * @param paginationArgs - Skip and limit for pagination.
    * @returns A paginated list of posts.
    */
-  async findPostsByAuthors(authorIds: string[], paginationArgs: PaginationArgs): Promise<PostDocument[]> {
+  async findPostsByAuthors(
+    authorIds: string[],
+    paginationArgs: PaginationArgs,
+  ): Promise<PostDocument[]> {
     const { skip, limit } = paginationArgs;
     return this.postModel
       .find({
@@ -141,7 +161,7 @@ export class PostsService {
     ]);
 
     // The result is an array of objects like [{ _id: '...' }], so we map to get an array of strings.
-    return popularAuthors.map(author => author._id.toString());
+    return popularAuthors.map((author) => author._id.toString());
   }
 
   /**
@@ -165,7 +185,10 @@ export class PostsService {
    * @param sincePostId - The ID of the last post seen by the user.
    * @returns The number of new posts.
    */
-  async countNewPostsByAuthors(authorIds: string[], sincePostId: string): Promise<number> {
+  async countNewPostsByAuthors(
+    authorIds: string[],
+    sincePostId: string,
+  ): Promise<number> {
     return this.postModel.countDocuments({
       author: { $in: authorIds },
       _id: { $gt: sincePostId }, // Efficiently checks for newer documents
@@ -181,5 +204,23 @@ export class PostsService {
       createdAt: { $gt: since },
       status: PostStatus.PUBLISHED,
     });
+  }
+  /**
+   * Finds posts belonging to a specific group.
+   * @param groupId - The ID of the group.
+   * @param paginationArgs - Skip and limit for pagination.
+   * @returns A paginated list of posts in the group.
+   */
+  async findPostsByGroup(
+    groupId: string,
+    paginationArgs: PaginationArgs,
+  ): Promise<PostDocument[]> {
+    const { skip, limit } = paginationArgs;
+    return this.postModel
+      .find({ group: groupId })
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .populate('author');
   }
 }

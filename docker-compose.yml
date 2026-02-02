@@ -8,6 +8,10 @@ services:
       - "${PORT}:${PORT}"
     env_file:
       - .env
+    # environment:
+      # - REDIS_HOST=redis
+      # Override Mongo URI to use local container if preferred, or keep Atlas from .env
+      # - MONGODB_URI=mongodb://mongo:27017/pmsconnectdb
     depends_on:
       - mongo
 

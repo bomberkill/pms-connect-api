@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Document, SchemaTypes, Types } from 'mongoose';
+import { Document, SchemaTypes } from 'mongoose';
 
 // Enums to be used in Mongoose schema, mirroring GraphQL enums
 // It's good practice to define them separately or import if they are shared
@@ -101,20 +101,23 @@ export class ProfessionalAccreditation {
   @Prop({ type: String })
   issuingAuthority?: string;
 }
-export const ProfessionalAccreditationSchema = SchemaFactory.createForClass(ProfessionalAccreditation);
+export const ProfessionalAccreditationSchema = SchemaFactory.createForClass(
+  ProfessionalAccreditation,
+);
 
 @Schema({ timestamps: true, discriminatorKey: 'userType' })
-export class User extends Document { // Extend Document for Mongoose typings
-  @Prop({ type: String, required: true, unique: true, index: true })
+export class User extends Document {
+  // Extend Document for Mongoose typings
+  @Prop({ type: String, required: true, unique: true })
   firebaseUid: string;
 
-  @Prop({ type: String, required: true, unique: true, lowercase: true, trim: true })
+  @Prop({ type: String, required: true, lowercase: true, trim: true })
   email: string;
 
   @Prop({ type: String, required: true, default: '' })
   phoneNumber: string;
 
-  @Prop({ type: String, required: true, unique: true, index: true, trim: true })
+  @Prop({ type: String, required: true, trim: true })
   slug: string;
 
   // This is the discriminator key. It's managed by Mongoose but needs to be declared for TypeScript.
@@ -138,7 +141,12 @@ export class User extends Document { // Extend Document for Mongoose typings
   @Prop({ type: String })
   websiteUrl?: string;
 
-  @Prop({ type: String, enum: Object.values(AccountStatus), required: true, default: AccountStatus.PENDING_VERIFICATION })
+  @Prop({
+    type: String,
+    enum: Object.values(AccountStatus),
+    required: true,
+    default: AccountStatus.PENDING_VERIFICATION,
+  })
   accountStatus: AccountStatus;
 
   @Prop({ type: [{ type: SchemaTypes.ObjectId, ref: 'User' }], default: [] })
@@ -159,13 +167,16 @@ export class User extends Document { // Extend Document for Mongoose typings
   @Prop({ type: String, default: 'en' }) // Default to English
   language: string;
 
+  @Prop({ type: [String], required: true, default: [] })
+  providers: string[];
+
   // createdAt and updatedAt are handled by timestamps: true
   @Prop({ type: Date })
   lastLoginAt?: Date;
 
   // Add declarations for timestamp fields to satisfy TypeScript when comparing with GraphQL User model
-    readonly createdAt: Date;
-    readonly updatedAt: Date;
+  readonly createdAt: Date;
+  readonly updatedAt: Date;
 }
 
 export const UserSchema = SchemaFactory.createForClass(User);
@@ -186,7 +197,8 @@ export class IndividualUser extends User {
   @Prop({ type: String, trim: true })
   professionalTitle?: string;
 }
-export const IndividualUserSchema = SchemaFactory.createForClass(IndividualUser);
+export const IndividualUserSchema =
+  SchemaFactory.createForClass(IndividualUser);
 
 @Schema()
 export class LegalEntityUser extends User {
@@ -196,10 +208,17 @@ export class LegalEntityUser extends User {
   @Prop({ type: String, enum: Object.values(EntityType), required: true })
   entityType: EntityType;
 }
-export const LegalEntityUserSchema = SchemaFactory.createForClass(LegalEntityUser);
+export const LegalEntityUserSchema =
+  SchemaFactory.createForClass(LegalEntityUser);
 
 // Export Document types for service injection
 
 export type UserDocument = User & Document;
 export type IndividualUserDocument = IndividualUser & Document;
 export type LegalEntityUserDocument = LegalEntityUser & Document;
+
+// Critical indexes for scalability
+UserSchema.index({ email: 1 }, { unique: true }); // Login queries
+UserSchema.index({ slug: 1 }, { unique: true }); // Profile lookups
+UserSchema.index({ accountStatus: 1 }); // Active users filter
+// UserSchema.index({ firebaseUid: 1 }, { unique: true }); // Removed: Duplicate of @Prop({ unique: true })

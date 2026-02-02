@@ -64,6 +64,17 @@ async function bootstrap() {
       `[PhoneNumber] Matched: ${phoneUpdate.matchedCount}, Updated: ${phoneUpdate.modifiedCount}`,
     );
 
+    // --- Providers ---
+    const providersUpdate = await usersCollection.updateMany(
+      // Cible les documents où le champ 'providers' n'existe pas ou est null
+      { providers: { $exists: false } },
+      // Définit le champ 'providers' avec la valeur par défaut
+      { $set: { providers: ['password'] } },
+    );
+    console.log(
+      `[Providers]   Matched: ${providersUpdate.matchedCount}, Updated: ${providersUpdate.modifiedCount}`,
+    );
+
     console.log('🎉 Migration Users terminée avec succès !');
   } catch (error) {
     console.error('❌ Une erreur est survenue pendant la migration :', error);

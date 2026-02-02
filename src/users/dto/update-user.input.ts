@@ -6,14 +6,12 @@ import {
   IsUrl,
   ValidateNested,
   IsArray,
-  IsEnum,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import {
   LocationInput,
   ProfessionalAccreditationInput,
 } from './create-user.input'; // Re-use from CreateUserInput
-import { AccountStatusGQL, SpecialityGQL, EntityTypeGQL } from '../models/users.model';
 
 // UpdateUserInput will allow partial updates. We can omit fields that shouldn't be updatable this way,
 // like email (which often has a separate verification flow) or userType.

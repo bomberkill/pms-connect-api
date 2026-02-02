@@ -14,14 +14,23 @@ export class AdminJwtStrategy extends PassportStrategy(Strategy, 'admin-jwt') {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
-      secretOrKey: configService.get<string>('ADMIN_JWT_SECRET', 'DEFAULT_ADMIN_SECRET_KEY_32_CHARS'),
+      secretOrKey: configService.get<string>(
+        'ADMIN_JWT_SECRET',
+        'DEFAULT_ADMIN_SECRET_KEY_32_CHARS',
+      ),
     });
   }
 
-  async validate(payload: { sub: string; email: string; roles: string[] }): Promise<AdminUserDocument> {
+  async validate(payload: {
+    sub: string;
+    email: string;
+    roles: string[];
+  }): Promise<AdminUserDocument> {
     const admin = await this.adminAuthService.validateJwtPayload(payload);
     if (!admin || !admin.isActive || admin.isLockedOut) {
-      throw new UnauthorizedException('Admin not found, inactive, or locked out.');
+      throw new UnauthorizedException(
+        'Admin not found, inactive, or locked out.',
+      );
     }
     return admin; // This becomes req.user for JWT protected routes
   }

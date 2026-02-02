@@ -16,7 +16,10 @@ export class DataloaderService {
   /**
    * Register a DataLoader instance for the given type for this request.
    */
-  setLoader<T extends DataLoader<any, any>>(loaderType: Type<T>, instance: T): void {
+  setLoader<T extends DataLoader<any, any>>(
+    loaderType: Type<T>,
+    instance: T,
+  ): void {
     this.loaders.set(loaderType, instance);
   }
 

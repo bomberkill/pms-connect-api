@@ -1,5 +1,13 @@
 import { InputType, Field } from '@nestjs/graphql';
-import { IsString, IsNotEmpty, IsOptional, IsUrl, IsEnum, ValidateNested, IsArray } from 'class-validator';
+import {
+  IsString,
+  IsNotEmpty,
+  IsOptional,
+  IsUrl,
+  IsEnum,
+  ValidateNested,
+  IsArray,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 import { PostStatus } from '../schemas/posts.schema';
 
@@ -29,9 +37,11 @@ export class CreatePostInput {
   @Type(() => MediaItemInput)
   media?: MediaItemInput[];
 
-  @Field(() => PostStatus, { nullable: true, description: 'Defaults to PUBLISHED if not provided.' })
+  @Field(() => PostStatus, {
+    nullable: true,
+    description: 'Defaults to PUBLISHED if not provided.',
+  })
   @IsOptional()
   @IsEnum(PostStatus)
   status?: PostStatus;
-
 }

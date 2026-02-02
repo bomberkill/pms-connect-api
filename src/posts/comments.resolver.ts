@@ -1,4 +1,13 @@
-import { Parent, ResolveField, Resolver, Mutation, Query, Args, ID, Subscription } from '@nestjs/graphql';
+import {
+  Parent,
+  ResolveField,
+  Resolver,
+  Mutation,
+  Query,
+  Args,
+  ID,
+  Subscription,
+} from '@nestjs/graphql';
 import { Inject, UseGuards } from '@nestjs/common';
 import { PubSub } from 'graphql-subscriptions';
 import { Comment } from './models/comments.model';
@@ -51,7 +60,9 @@ export class CommentsResolver {
 
   @UseGuards(FirebaseAuthGuard) // Protéger la lecture pour s'assurer que l'utilisateur est connecté
   @Query(() => Comment, { name: 'getCommentById', nullable: true })
-  async getCommentById(@Args('id', { type: () => ID }) id: string): Promise<CommentDocument> {
+  async getCommentById(
+    @Args('id', { type: () => ID }) id: string,
+  ): Promise<CommentDocument> {
     return this.commentsService.findOne(id);
   }
 
@@ -63,8 +74,10 @@ export class CommentsResolver {
     @Args('createCommentInput') createCommentInput: CreateCommentInput,
     @CurrentUser() user: UserDocument,
   ): Promise<CommentDocument> {
-    // const { postId, content, parentId, media } = createCommentInput;
-    return this.commentsService.addComment(user._id.toString(), createCommentInput);
+    return this.commentsService.addComment(
+      user._id.toString(),
+      createCommentInput,
+    );
   }
 
   @UseGuards(FirebaseAuthGuard)
@@ -89,7 +102,10 @@ export class CommentsResolver {
     resolve: (payload) => payload.commentAdded, // On extrait le commentaire du payload
   })
   // @UseGuards(FirebaseAuthGuard) // Protège l'accès à la subscription
-  commentAdded(@Args('postId', { type: () => ID }) postId: string) {
+  commentAdded(
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    @Args('postId', { type: () => ID }) _postId: string,
+  ) {
     return this.pubSub.asyncIterableIterator('COMMENT_ADDED');
   }
 
@@ -141,7 +157,11 @@ export class CommentsResolver {
     if (!user) {
       return null;
     }
-    const key: LikeLoaderKey = { likeableId: comment._id.toString(), likeableType: 'Comment', userId: user._id.toString() };
+    const key: LikeLoaderKey = {
+      likeableId: comment._id.toString(),
+      likeableType: 'Comment',
+      userId: user._id.toString(),
+    };
     return likeLoader.load(key);
   }
 

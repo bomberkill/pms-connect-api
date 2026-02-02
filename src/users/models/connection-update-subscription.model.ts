@@ -1,5 +1,5 @@
-import { Field, ID, ObjectType, registerEnumType } from "@nestjs/graphql";
-import { ConnectionRequestStatus } from "../schemas/connection-request.schema";
+import { Field, ID, ObjectType, registerEnumType } from '@nestjs/graphql';
+import { ConnectionRequestStatus } from '../schemas/connection-request.schema';
 
 registerEnumType(ConnectionRequestStatus, {
   name: 'ConnectionRequestStatusGQL',

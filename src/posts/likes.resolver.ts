@@ -39,7 +39,11 @@ export class LikesResolver {
     @Args('commentId', { type: () => ID }) commentId: string,
     @CurrentUser() user: UserDocument,
   ): Promise<boolean> {
-    return this.likesService.likeItem(commentId, 'Comment', user._id.toString());
+    return this.likesService.likeItem(
+      commentId,
+      'Comment',
+      user._id.toString(),
+    );
   }
 
   @UseGuards(FirebaseAuthGuard)
@@ -48,7 +52,11 @@ export class LikesResolver {
     @Args('commentId', { type: () => ID }) commentId: string,
     @CurrentUser() user: UserDocument,
   ): Promise<boolean> {
-    return this.likesService.unlikeItem(commentId, 'Comment', user._id.toString());
+    return this.likesService.unlikeItem(
+      commentId,
+      'Comment',
+      user._id.toString(),
+    );
   }
 
   @Subscription(() => LikesUpdate, {
@@ -60,8 +68,10 @@ export class LikesResolver {
   })
   // @UseGuards(FirebaseAuthGuard)
   likesUpdated(
-    @Args('likeableId', { type: () => ID }) likeableId: string,
-    @Args('likeableType', { type: () => String }) likeableType: string,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    @Args('likeableId', { type: () => ID }) _likeableId: string,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    @Args('likeableType', { type: () => String }) _likeableType: string,
   ) {
     return this.pubSub.asyncIterableIterator('LIKES_UPDATED');
   }

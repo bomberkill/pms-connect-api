@@ -2,7 +2,10 @@ import { Module, forwardRef } from '@nestjs/common';
 import { UsersResolver } from './users.resolver';
 import { UsersService } from './users.service';
 import { MongooseModule } from '@nestjs/mongoose';
-import { ConnectionRequest, ConnectionRequestSchema } from './schemas/connection-request.schema';
+import {
+  ConnectionRequest,
+  ConnectionRequestSchema,
+} from './schemas/connection-request.schema';
 import { NotificationsModule } from '../notifications/notifications.module';
 import {
   User,
@@ -16,6 +19,7 @@ import { ConnectionRequestsService } from './connection-requests.service';
 import { ConnectionRequestsResolver } from './connection-requests.resolver';
 import { PubSubModule } from '../pubsub/pubsub.module';
 import { PostsModule } from 'src/posts/posts.module';
+import { FollowsModule } from '../follows/follows.module';
 
 @Module({
   imports: [
@@ -33,8 +37,15 @@ import { PostsModule } from 'src/posts/posts.module';
     forwardRef(() => NotificationsModule),
     forwardRef(() => PostsModule), // Importer PostsModule pour rendre les modèles Post et Comment disponibles
     PubSubModule,
+    FollowsModule,
   ],
-  providers: [UsersResolver, UsersService, UserLoader, ConnectionRequestsService, ConnectionRequestsResolver],
+  providers: [
+    UsersResolver,
+    UsersService,
+    UserLoader,
+    ConnectionRequestsService,
+    ConnectionRequestsResolver,
+  ],
   // Export MongooseModule to make UserModel available to other modules that import UsersModule.
   exports: [UsersService, UserLoader, MongooseModule],
 })

@@ -1,9 +1,18 @@
-import { Injectable, NotFoundException, ForbiddenException, Inject } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  ForbiddenException,
+  Inject,
+} from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import { PubSub } from 'graphql-subscriptions';
-import { Post, PostDocument, PostStatus } from './schemas/posts.schema';
-import { Comment, CommentDocument, CommentStatus } from './schemas/comments.schema';
+import { Post, PostDocument } from './schemas/posts.schema';
+import {
+  Comment,
+  CommentDocument,
+  CommentStatus,
+} from './schemas/comments.schema';
 import { PaginationArgs } from './dto/pagination.args';
 import { NotificationsService } from '../notifications/notifications.service';
 import { NotificationType } from '../notifications/schemas/notification.schema';
@@ -19,10 +28,18 @@ export class CommentsService {
     @Inject(PUB_SUB) private readonly pubSub: PubSub,
   ) {}
 
-  async addComment(authorId: string, createCommentInput: CreateCommentInput): Promise<CommentDocument> {
-    const post = await this.postModel.findById(createCommentInput.postId).select('_id author').lean();
+  async addComment(
+    authorId: string,
+    createCommentInput: CreateCommentInput,
+  ): Promise<CommentDocument> {
+    const post = await this.postModel
+      .findById(createCommentInput.postId)
+      .select('_id author')
+      .lean();
     if (!post) {
-      throw new NotFoundException(`Post with ID "${createCommentInput.postId}" not found.`);
+      throw new NotFoundException(
+        `Post with ID "${createCommentInput.postId}" not found.`,
+      );
     }
 
     let savedComment: CommentDocument;
@@ -43,19 +60,29 @@ export class CommentsService {
 
         if (!createCommentInput.parentId) {
           // Only increment commentsCount for top-level comments
-          await this.postModel.updateOne({ _id: createCommentInput.postId }, { $inc: { commentsCount: 1 } }, { session });
+          await this.postModel.updateOne(
+            { _id: createCommentInput.postId },
+            { $inc: { commentsCount: 1 } },
+            { session },
+          );
         } else {
           // If it's a reply, increment the commentsCount of the parent comment
-          await this.commentModel.updateOne({ _id: createCommentInput.parentId }, { $inc: { commentsCount: 1 } }, { session });
+          await this.commentModel.updateOne(
+            { _id: createCommentInput.parentId },
+            { $inc: { commentsCount: 1 } },
+            { session },
+          );
         }
       }); // The transaction is automatically committed here if no errors were thrown.
 
       // The transaction was successful, now we can perform side-effects.
       // Populate the author details. This happens outside the transaction but before the session ends.
       // await savedComment;
-      
+
       // Publish the event for GraphQL subscriptions
-      this.pubSub.publish('COMMENT_ADDED', { commentAdded: createCommentInput.postId });
+      this.pubSub.publish('COMMENT_ADDED', {
+        commentAdded: createCommentInput.postId,
+      });
 
       // Create the notification AFTER the transaction has succeeded.
       this.notificationsService.create({
@@ -94,7 +121,10 @@ export class CommentsService {
    */
   private async softDeleteCommentAndReplies(commentId: string): Promise<void> {
     // Find all direct replies to the current comment
-    const replies = await this.commentModel.find({ parent: commentId }).select('_id').lean();
+    const replies = await this.commentModel
+      .find({ parent: commentId })
+      .select('_id')
+      .lean();
 
     // Recursively delete each reply
     for (const reply of replies) {
@@ -109,42 +139,59 @@ export class CommentsService {
           content: '[This comment has been deleted]',
           status: CommentStatus.DELETED,
           // Optionally clear author to anonymize, but keep it for historical data
-          // author: null 
-        }
+          // author: null
+        },
       },
-      { new: true }
+      { new: true },
     );
 
     // Decrement the post's comment count only for top-level comments
     if (deletedComment) {
-      if(deletedComment.parent) {
+      if (deletedComment.parent) {
         // If it's a reply, decrement the commentsCount of the parent comment
-        await this.commentModel.updateOne({ _id: deletedComment.parent }, { $inc: { commentsCount: -1 } });
+        await this.commentModel.updateOne(
+          { _id: deletedComment.parent },
+          { $inc: { commentsCount: -1 } },
+        );
       } else {
         // If it's a top-level comment, decrement the commentsCount of the post
-        await this.postModel.updateOne({ _id: deletedComment.post }, { $inc: { commentsCount: -1 } });
+        await this.postModel.updateOne(
+          { _id: deletedComment.post },
+          { $inc: { commentsCount: -1 } },
+        );
       }
     }
   }
 
-  async findCommentsByPost(postId: string, paginationArgs: PaginationArgs): Promise<CommentDocument[]> {
+  async findCommentsByPost(
+    postId: string,
+    paginationArgs: PaginationArgs,
+  ): Promise<CommentDocument[]> {
     const { skip, limit } = paginationArgs;
+
+    // Validate ObjectId format
+    if (!Types.ObjectId.isValid(postId)) {
+      throw new NotFoundException(`Invalid post ID format: ${postId}`);
+    }
+
     return this.commentModel
-      .find({ post: postId, parent: null }) // Only fetch top-level comments
-      .sort({ createdAt: -1 }) // Show newest comments first
+      .find({ post: postId, parent: null })
+      .sort({ createdAt: -1 })
       .skip(skip)
-      .limit(limit)
-      // .lean({ virtuals: true }); // Use .lean() for performance, and include virtuals like 'id'
+      .limit(limit);
   }
 
-  async findRepliesForComment(parentId: string, paginationArgs: PaginationArgs): Promise<CommentDocument[]> {
+  async findRepliesForComment(
+    parentId: string,
+    paginationArgs: PaginationArgs,
+  ): Promise<CommentDocument[]> {
     const { skip, limit } = paginationArgs;
     return this.commentModel
       .find({ parent: parentId }) // Fetch replies for a specific parent
       .sort({ createdAt: 'asc' }) // Show oldest replies first for conversational flow
       .skip(skip)
-      .limit(limit)
-      // .lean({ virtuals: true }); // Use .lean() for performance, and include virtuals like 'id'
+      .limit(limit);
+    // .lean({ virtuals: true }); // Use .lean() for performance, and include virtuals like 'id'
   }
 
   async findOne(id: string): Promise<CommentDocument> {

@@ -12,10 +12,20 @@ export enum ConnectionRequestStatus {
 
 @Schema({ timestamps: true })
 export class ConnectionRequest extends Document {
-  @Prop({ type: SchemaTypes.ObjectId, ref: 'User', required: true, index: true })
+  @Prop({
+    type: SchemaTypes.ObjectId,
+    ref: 'User',
+    required: true,
+    index: true,
+  })
   requester: User;
 
-  @Prop({ type: SchemaTypes.ObjectId, ref: 'User', required: true, index: true })
+  @Prop({
+    type: SchemaTypes.ObjectId,
+    ref: 'User',
+    required: true,
+    index: true,
+  })
   recipient: User;
 
   @Prop({
@@ -27,5 +37,6 @@ export class ConnectionRequest extends Document {
   status: ConnectionRequestStatus;
 }
 
-export const ConnectionRequestSchema = SchemaFactory.createForClass(ConnectionRequest);
+export const ConnectionRequestSchema =
+  SchemaFactory.createForClass(ConnectionRequest);
 export type ConnectionRequestDocument = ConnectionRequest & Document;

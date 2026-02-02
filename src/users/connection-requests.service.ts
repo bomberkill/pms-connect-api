@@ -1,9 +1,19 @@
-import { Injectable, NotFoundException, ConflictException, BadRequestException, Inject } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  ConflictException,
+  BadRequestException,
+  Inject,
+} from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model, FilterQuery, Types } from 'mongoose';
+import { Model, FilterQuery } from 'mongoose';
 import { PubSub } from 'graphql-subscriptions';
 import { User, UserDocument } from './schemas/users.schema';
-import { ConnectionRequest, ConnectionRequestDocument, ConnectionRequestStatus } from './schemas/connection-request.schema';
+import {
+  ConnectionRequest,
+  ConnectionRequestDocument,
+  ConnectionRequestStatus,
+} from './schemas/connection-request.schema';
 import { NotificationsService } from '../notifications/notifications.service';
 import { NotificationType } from '../notifications/schemas/notification.schema';
 import { UsersService } from './users.service';
@@ -13,7 +23,8 @@ import { PUB_SUB } from '../pubsub/pubsub.module';
 export class ConnectionRequestsService {
   constructor(
     @InjectModel(User.name) private userModel: Model<UserDocument>,
-    @InjectModel(ConnectionRequest.name) private readonly connectionRequestModel: Model<ConnectionRequestDocument>,
+    @InjectModel(ConnectionRequest.name)
+    private readonly connectionRequestModel: Model<ConnectionRequestDocument>,
     private readonly notificationsService: NotificationsService,
     @Inject(PUB_SUB) private readonly pubSub: PubSub,
     private readonly usersService: UsersService, // We need it for the follow logic
@@ -22,9 +33,14 @@ export class ConnectionRequestsService {
   /**
    * Envoie une demande de connexion d'un utilisateur à un autre.
    */
-  async sendConnectionRequest(requesterId: string, recipientId: string): Promise<ConnectionRequest> {
+  async sendConnectionRequest(
+    requesterId: string,
+    recipientId: string,
+  ): Promise<ConnectionRequest> {
     if (requesterId === recipientId) {
-      throw new BadRequestException('You cannot send a connection request to yourself.');
+      throw new BadRequestException(
+        'You cannot send a connection request to yourself.',
+      );
     }
 
     const [requester, recipient] = await Promise.all([
@@ -36,7 +52,9 @@ export class ConnectionRequestsService {
       throw new NotFoundException(`User with ID "${recipientId}" not found.`);
     }
 
-    if (requester.connections.map(id => id.toString()).includes(recipientId)) {
+    if (
+      requester.connections.map((id) => id.toString()).includes(recipientId)
+    ) {
       throw new ConflictException('You are already connected with this user.');
     }
 
@@ -48,12 +66,21 @@ export class ConnectionRequestsService {
             { requester: recipientId, recipient: requesterId },
           ],
         },
-        { status: { $in: [ConnectionRequestStatus.PENDING, ConnectionRequestStatus.ACCEPTED] } }
-      ]
+        {
+          status: {
+            $in: [
+              ConnectionRequestStatus.PENDING,
+              ConnectionRequestStatus.ACCEPTED,
+            ],
+          },
+        },
+      ],
     });
 
     if (existingRequest) {
-      throw new ConflictException('A connection request already exists between you and this user.');
+      throw new ConflictException(
+        'A connection request already exists between you and this user.',
+      );
     }
 
     const newRequest = new this.connectionRequestModel({
@@ -67,7 +94,9 @@ export class ConnectionRequestsService {
     // Publish event for the recipient
     // const populatedRequest = await savedRequest.populate(['requester', 'recipient']);
     // console.log('Publishing CONNECTION_REQUEST_UPDATED event ', populatedRequest);
-    this.pubSub.publish('CONNECTION_REQUEST_UPDATED', { connectionRequestUpdated: savedRequest });
+    this.pubSub.publish('CONNECTION_REQUEST_UPDATED', {
+      connectionRequestUpdated: savedRequest,
+    });
     console.log('Event CONNECTION_REQUEST_UPDATED published');
 
     // Create notification for the recipient
@@ -83,34 +112,61 @@ export class ConnectionRequestsService {
   /**
    * Accepte une demande de connexion.
    */
-  async acceptConnectionRequest(requestId: string, currentUserId: string): Promise<void> {
+  async acceptConnectionRequest(
+    requestId: string,
+    currentUserId: string,
+  ): Promise<void> {
     const request = await this.connectionRequestModel.findById(requestId);
 
     if (!request || request.recipient.toString() !== currentUserId) {
-      throw new NotFoundException('Connection request not found or you are not the recipient.');
+      throw new NotFoundException(
+        'Connection request not found or you are not the recipient.',
+      );
     }
 
     if (request.status !== 'PENDING') {
-      throw new ConflictException(`This request is already ${request.status.toLowerCase()}.`);
+      throw new ConflictException(
+        `This request is already ${request.status.toLowerCase()}.`,
+      );
     }
 
     const { requester, recipient } = request;
 
-    const updateUserA = this.userModel.updateOne({ _id: requester }, { $addToSet: { connections: recipient } });
-    const updateUserB = this.userModel.updateOne({ _id: recipient }, { $addToSet: { connections: requester } });
+    const updateUserA = this.userModel.updateOne(
+      { _id: requester },
+      { $addToSet: { connections: recipient } },
+    );
+    const updateUserB = this.userModel.updateOne(
+      { _id: recipient },
+      { $addToSet: { connections: requester } },
+    );
 
     request.status = ConnectionRequestStatus.ACCEPTED;
     const updateRequest = request.save();
 
-    const followAtoB = this.usersService.follow(requester.toString(), recipient.toString());
-    const followBtoA = this.usersService.follow(recipient.toString(), requester.toString());
+    const followAtoB = this.usersService.follow(
+      requester.toString(),
+      recipient.toString(),
+    );
+    const followBtoA = this.usersService.follow(
+      recipient.toString(),
+      requester.toString(),
+    );
 
     // Attendre que toutes les opérations de base soient terminées
-    const [, , savedRequest, followResultsA, followResultsB] = await Promise.all([updateUserA, updateUserB, updateRequest, followAtoB, followBtoA]);
+    const [, , savedRequest] = await Promise.all([
+      updateUserA,
+      updateUserB,
+      updateRequest,
+      followAtoB,
+      followBtoA,
+    ]);
 
     // 1. Publier la mise à jour de la demande de connexion AVEC les données peuplées
     // const populatedRequest = await savedRequest.populate(['requester', 'recipient']);
-    this.pubSub.publish('CONNECTION_REQUEST_UPDATED', { connectionRequestUpdated: savedRequest });
+    this.pubSub.publish('CONNECTION_REQUEST_UPDATED', {
+      connectionRequestUpdated: savedRequest,
+    });
 
     this.notificationsService.create({
       recipients: [requester.toString()],
@@ -124,7 +180,10 @@ export class ConnectionRequestsService {
   /**
    * Refuse ou annule une demande de connexion.
    */
-  async declineOrCancelConnectionRequest(requestId: string, currentUserId: string): Promise<void> {
+  async declineOrCancelConnectionRequest(
+    requestId: string,
+    currentUserId: string,
+  ): Promise<void> {
     const request = await this.connectionRequestModel.findById(requestId);
 
     if (!request) {
@@ -135,7 +194,9 @@ export class ConnectionRequestsService {
     const isRecipient = request.recipient.toString() === currentUserId;
 
     if (!isRequester && !isRecipient) {
-      throw new BadRequestException('You are not authorized to modify this request.');
+      throw new BadRequestException(
+        'You are not authorized to modify this request.',
+      );
     }
 
     if (isRequester) {
@@ -148,7 +209,9 @@ export class ConnectionRequestsService {
 
     // Publish event for both users
     // const populatedRequest = await savedRequest.populate(['requester', 'recipient']);
-    this.pubSub.publish('CONNECTION_REQUEST_UPDATED', { connectionRequestUpdated: savedRequest });
+    this.pubSub.publish('CONNECTION_REQUEST_UPDATED', {
+      connectionRequestUpdated: savedRequest,
+    });
   }
 
   /**
@@ -171,5 +234,23 @@ export class ConnectionRequestsService {
       .populate('requester recipient')
       .sort({ createdAt: -1 })
       .exec();
+  }
+
+  /**
+   * Gets all connections for a specific user.
+   * Returns all users that are in the user's connections array.
+   */
+  async getConnections(userId: string): Promise<UserDocument[]> {
+    const user = await this.userModel
+      .findById(userId)
+      .select('connections')
+      .lean();
+
+    if (!user) {
+      throw new NotFoundException(`User with ID "${userId}" not found.`);
+    }
+
+    // Fetch all connected users
+    return this.userModel.find({ _id: { $in: user.connections } }).exec();
   }
 }

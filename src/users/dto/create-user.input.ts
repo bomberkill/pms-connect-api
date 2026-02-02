@@ -1,4 +1,4 @@
-import { InputType, Field, ID } from '@nestjs/graphql';
+import { InputType, Field } from '@nestjs/graphql';
 import {
   IsEmail,
   IsNotEmpty,
@@ -14,8 +14,6 @@ import {
   UserTypeGQL,
   SpecialityGQL,
   EntityTypeGQL,
-  ProfessionalAccreditationObject,
-  LocationObject,
 } from '../models/users.model'; // Import GraphQL types/enums
 
 @InputType()
@@ -62,10 +60,10 @@ export class LocationInput {
 
 @InputType()
 export class CreateUserInput {
-//   @Field(() => ID)
-//   @IsNotEmpty()
-//   @IsString()
-//   firebaseUid: string; // Required from Firebase Auth
+  //   @Field(() => ID)
+  //   @IsNotEmpty()
+  //   @IsString()
+  //   firebaseUid: string; // Required from Firebase Auth
 
   @Field()
   @IsNotEmpty()
@@ -76,6 +74,15 @@ export class CreateUserInput {
   @IsNotEmpty()
   @IsString()
   phoneNumber: string;
+
+  @Field(() => [String], {
+    description:
+      'Authentication providers used for sign-up (e.g., ["password"], ["google.com"])',
+  })
+  @IsArray()
+  @IsString({ each: true })
+  @IsNotEmpty({ each: true })
+  providers: string[];
 
   @Field(() => UserTypeGQL)
   @IsEnum(UserTypeGQL)
@@ -117,10 +124,19 @@ export class CreateUserInput {
   // Fields specific to IndividualUser (only include if userType is INDIVIDUAL)
   @Field({ nullable: true }) @IsOptional() @IsString() firstName?: string;
   @Field({ nullable: true }) @IsOptional() @IsString() lastName?: string;
-  @Field(() => SpecialityGQL, { nullable: true }) @IsOptional() @IsEnum(SpecialityGQL) speciality?: SpecialityGQL;
-  @Field({ nullable: true }) @IsOptional() @IsString() professionalTitle?: string;
+  @Field(() => SpecialityGQL, { nullable: true })
+  @IsOptional()
+  @IsEnum(SpecialityGQL)
+  speciality?: SpecialityGQL;
+  @Field({ nullable: true })
+  @IsOptional()
+  @IsString()
+  professionalTitle?: string;
 
   // Fields specific to LegalEntityUser (only include if userType is LEGAL_ENTITY)
   @Field({ nullable: true }) @IsOptional() @IsString() entityName?: string;
-  @Field(() => EntityTypeGQL, { nullable: true }) @IsOptional() @IsEnum(EntityTypeGQL) entityType?: EntityTypeGQL;
+  @Field(() => EntityTypeGQL, { nullable: true })
+  @IsOptional()
+  @IsEnum(EntityTypeGQL)
+  entityType?: EntityTypeGQL;
 }

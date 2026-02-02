@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Document, SchemaTypes, Types } from 'mongoose';
+import { Document, SchemaTypes } from 'mongoose';
 import { Comment } from 'src/posts/schemas/comments.schema';
 import { Post } from 'src/posts/schemas/posts.schema';
 import { User } from 'src/users/schemas/users.schema';
@@ -16,7 +16,12 @@ export type BookmarkDocument = Bookmark & Document;
   collection: 'bookmarks',
 })
 export class Bookmark {
-  @Prop({ type: SchemaTypes.ObjectId, ref: 'User', required: true, index: true })
+  @Prop({
+    type: SchemaTypes.ObjectId,
+    ref: 'User',
+    required: true,
+    index: true,
+  })
   user: User;
 
   @Prop({ type: String, required: true, enum: Object.values(BookmarkableType) })

@@ -9,11 +9,13 @@ export class AuthResolver {
   @Query(() => CheckUserExistsResponse, { name: 'checkUserExistsByEmail' })
   async checkUserExistsByEmail(
     @Args('email', { type: () => String }) email: string,
-  ): Promise<{exists: boolean, hasPassword: boolean, providers: string[]}> {
+  ): Promise<CheckUserExistsResponse> {
     return this.authService.checkUserExistsByEmail(email);
   }
 
-  @Query(() => CheckUserExistsResponse, { name: 'checkUserExistsByPhoneNumber' })
+  @Query(() => CheckUserExistsResponse, {
+    name: 'checkUserExistsByPhoneNumber',
+  })
   async checkUserExistsByPhoneNumber(
     @Args('phoneNumber', { type: () => String }) phoneNumber: string,
   ): Promise<CheckUserExistsResponse> {

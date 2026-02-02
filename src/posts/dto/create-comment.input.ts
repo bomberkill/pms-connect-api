@@ -1,5 +1,12 @@
 import { InputType, Field, ID } from '@nestjs/graphql';
-import { IsString, IsNotEmpty, IsMongoId, IsOptional, ValidateNested, IsArray } from 'class-validator';
+import {
+  IsString,
+  IsNotEmpty,
+  IsMongoId,
+  IsOptional,
+  ValidateNested,
+  IsArray,
+} from 'class-validator';
 import { MediaItemInput } from './create-post.input';
 import { Type } from 'class-transformer';
 
@@ -22,7 +29,7 @@ export class CreateCommentInput {
   @Type(() => MediaItemInput)
   media?: MediaItemInput[];
 
-  @Field(() => ID, {nullable: true})
+  @Field(() => ID, { nullable: true })
   @IsOptional()
   parentId?: string;
 }

@@ -1,5 +1,13 @@
-import { Resolver, Query, Mutation, Args, ID, Parent, ResolveField } from '@nestjs/graphql';
-import { UseGuards, forwardRef, Inject } from '@nestjs/common';
+import {
+  Resolver,
+  Query,
+  Mutation,
+  Args,
+  ID,
+  Parent,
+  ResolveField,
+} from '@nestjs/graphql';
+import { UseGuards } from '@nestjs/common';
 import { BookmarkLoader } from 'src/bookmarks/loaders/bookmarks.loader';
 import { PostsService } from './posts.service';
 import { Post } from './models/posts.model';
@@ -18,9 +26,7 @@ import { Date } from 'mongoose';
 
 @Resolver(() => Post)
 export class PostsResolver {
-  constructor(
-    private readonly postsService: PostsService,
-  ) {}
+  constructor(private readonly postsService: PostsService) {}
 
   @UseGuards(FirebaseAuthGuard)
   @Mutation(() => Post, { name: 'createPost' })
@@ -34,7 +40,9 @@ export class PostsResolver {
 
   @UseGuards(FirebaseAuthGuard) // Protéger la lecture pour s'assurer que l'utilisateur est connecté
   @Query(() => Post, { name: 'getPostById', nullable: true })
-  async getPostById(@Args('id', { type: () => ID }) id: string): Promise<PostDocument> {
+  async getPostById(
+    @Args('id', { type: () => ID }) id: string,
+  ): Promise<PostDocument> {
     return this.postsService.findOne(id);
     // return postDocument as unknown as Post;
   }
@@ -73,7 +81,10 @@ export class PostsResolver {
       */
     } else {
       // Sinon, on construit le fil d'actualité standard avec les posts des personnes suivies et ses propres posts.
-      authorIds = [...user.following.map(id => id.toString()), user._id.toString()];
+      authorIds = [
+        ...user.following.map((id) => id.toString()),
+        user._id.toString(),
+      ];
       return this.postsService.findPostsByAuthors(authorIds, paginationArgs);
       // return posts as unknown as Post[];
     }
@@ -83,7 +94,11 @@ export class PostsResolver {
   @Query(() => Number, { name: 'getNewFeedItemsCount' })
   async getNewFeedItemsCount(
     @CurrentUser() user: UserDocument,
-    @Args('since', { type: () => Date, description: 'The ID of the most recent post the user has seen.' }) since: Date,
+    @Args('since', {
+      type: () => Date,
+      description: 'The ID of the most recent post the user has seen.',
+    })
+    since: Date,
   ): Promise<number> {
     return this.postsService.countNewPosts(since);
     // if (user.following.length === 0) {
@@ -91,6 +106,24 @@ export class PostsResolver {
     //   const authorIds = [...user.following.map(id => id.toString()), user._id.toString()];
     //   return this.postsService.countNewPostsByAuthors(authorIds, since);
     // }
+  }
+
+  @UseGuards(FirebaseAuthGuard)
+  @Query(() => [Post], { name: 'getPostsByAuthor' })
+  async getPostsByAuthor(
+    @Args('authorId', { type: () => ID }) authorId: string,
+    @Args() paginationArgs: PaginationArgs,
+  ): Promise<PostDocument[]> {
+    return this.postsService.findPostsByAuthors([authorId], paginationArgs);
+  }
+
+  @UseGuards(FirebaseAuthGuard)
+  @Query(() => [Post], { name: 'getPostsByGroup' })
+  async getPostsByGroup(
+    @Args('groupId', { type: () => ID }) groupId: string,
+    @Args() paginationArgs: PaginationArgs,
+  ): Promise<PostDocument[]> {
+    return this.postsService.findPostsByGroup(groupId, paginationArgs);
   }
 
   // TODO: Ajouter les resolvers pour les champs `author`
@@ -101,7 +134,11 @@ export class PostsResolver {
     @Args('updatePostInput') updatePostInput: UpdatePostInput,
     @CurrentUser() user: UserDocument,
   ): Promise<PostDocument> {
-    return this.postsService.update(postId, user._id.toString(), updatePostInput);
+    return this.postsService.update(
+      postId,
+      user._id.toString(),
+      updatePostInput,
+    );
     // return updatedPost as unknown as Post;
   }
 
@@ -114,7 +151,10 @@ export class PostsResolver {
   ): Promise<UserDocument> {
     // post.author peut être un ID ou un objet User populé.
     // On s'assure de passer un ID au loader.
-    const authorId = typeof post.author === 'string' ? post.author : (post.author as any)._id.toString();
+    const authorId =
+      typeof post.author === 'string'
+        ? post.author
+        : (post.author as any)._id.toString();
     return userLoader.load(authorId);
   }
 
@@ -128,7 +168,11 @@ export class PostsResolver {
       return null;
     }
     // Le DataLoader va regrouper tous les post.id et vérifier en une seule fois.
-    return likeLoader.load({ likeableId: post._id.toString(), likeableType: 'Post', userId: user._id.toString() });
+    return likeLoader.load({
+      likeableId: post._id.toString(),
+      likeableType: 'Post',
+      userId: user._id.toString(),
+    });
   }
 
   @ResolveField('isBookmarked', () => Boolean, { nullable: true })

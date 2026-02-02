@@ -12,25 +12,30 @@ export class EmailService {
     // Configure based on environment variables
     // For production, use a real email service provider
     // For development, Ethereal is great, or Mailtrap, or even a local SMTP dev server
-     // The Ethereal setup is asynchronous, so the transporter might not be ready immediately.
+    // The Ethereal setup is asynchronous, so the transporter might not be ready immediately.
     // We will handle its creation more robustly, potentially on the first sendMail call if needed.
     if (this.configService.get<string>('MAIL_HOST') === 'ethereal') {
-      nodemailer.createTestAccount().then(account => {
-        this.logger.log(`Ethereal test account created: ${account.user} / ${account.pass}`);
-        // this.logger.log(`Preview URL: ${nodemailer.getTestMessageUrl({})} (after sending an email)`);
-        this.transporter = nodemailer.createTransport({
-          host: 'smtp.ethereal.email',
-          port: 587,
-          secure: false, // true for 465, false for other ports
-          auth: {
-            user: account.user, // generated ethereal user
-            pass: account.pass, // generated ethereal password
-          },
+      nodemailer
+        .createTestAccount()
+        .then((account) => {
+          this.logger.log(
+            `Ethereal test account created: ${account.user} / ${account.pass}`,
+          );
+          // this.logger.log(`Preview URL: ${nodemailer.getTestMessageUrl({})} (after sending an email)`);
+          this.transporter = nodemailer.createTransport({
+            host: 'smtp.ethereal.email',
+            port: 587,
+            secure: false, // true for 465, false for other ports
+            auth: {
+              user: account.user, // generated ethereal user
+              pass: account.pass, // generated ethereal password
+            },
+          });
+        })
+        .catch((err) => {
+          this.logger.error('Failed to create Ethereal test account', err);
+          // Transporter remains undefined, sendMail will attempt to re-initialize or throw
         });
-      }).catch(err => {
-        this.logger.error('Failed to create Ethereal test account', err);
-        // Transporter remains undefined, sendMail will attempt to re-initialize or throw
-      });
     } else {
       this.transporter = nodemailer.createTransport({
         host: this.configService.get<string>('MAIL_HOST'),
@@ -46,12 +51,16 @@ export class EmailService {
 
   async sendMail(options: Mail.Options) {
     if (!this.transporter) {
-        this.logger.warn('Email transporter not initialized. Attempting to initialize...');
+      this.logger.warn(
+        'Email transporter not initialized. Attempting to initialize...',
+      );
       // Attempt to initialize Ethereal transporter if configured and not yet ready
       if (this.configService.get<string>('MAIL_HOST') === 'ethereal') {
         try {
           const account = await nodemailer.createTestAccount();
-          this.logger.log(`Ethereal test account created on demand: ${account.user} / ${account.pass}`);
+          this.logger.log(
+            `Ethereal test account created on demand: ${account.user} / ${account.pass}`,
+          );
           this.transporter = nodemailer.createTransport({
             host: 'smtp.ethereal.email',
             port: 587,
@@ -59,12 +68,17 @@ export class EmailService {
             auth: { user: account.user, pass: account.pass },
           });
         } catch (err) {
-          this.logger.error('Failed to create Ethereal test account on demand', err);
+          this.logger.error(
+            'Failed to create Ethereal test account on demand',
+            err,
+          );
           throw new Error('Email service failed to initialize.');
         }
       } else {
         // For other transports, if it's not initialized by now, it's a configuration issue.
-        this.logger.error('Email transporter is not configured or failed to initialize for non-Ethereal setup.');
+        this.logger.error(
+          'Email transporter is not configured or failed to initialize for non-Ethereal setup.',
+        );
         throw new Error('Email service not configured.');
       }
     }
@@ -114,7 +128,7 @@ export class EmailService {
     return this.sendMail({ to, subject, text, html });
   }
 
-   async sendPasswordResetConfirmationEmail(to: string, name: string) {
+  async sendPasswordResetConfirmationEmail(to: string, name: string) {
     const subject = 'Admin Password Changed Successfully';
     const html = `
       <p>Hello ${name},</p>

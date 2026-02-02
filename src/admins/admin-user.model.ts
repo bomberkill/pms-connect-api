@@ -1,4 +1,11 @@
-import { ObjectType, Field, ID, registerEnumType, GraphQLISODateTime, Int } from '@nestjs/graphql';
+import {
+  ObjectType,
+  Field,
+  ID,
+  registerEnumType,
+  GraphQLISODateTime,
+  Int,
+} from '@nestjs/graphql';
 
 // Mirror the Mongoose AdminRole enum for GraphQL
 export enum AdminRoleGQL {
@@ -35,13 +42,17 @@ export class AdminUser {
   @Field(() => GraphQLISODateTime, { nullable: true })
   lastLoginAt?: Date;
 
-  @Field(() => Int, { description: 'Number of failed login attempts since last success' })
+  @Field(() => Int, {
+    description: 'Number of failed login attempts since last success',
+  })
   failedLoginAttempts: number;
 
   @Field({ description: 'Indicates if the account is currently locked out' })
   isLockedOut: boolean;
 
-  @Field(() => [String], { description: 'Specific permissions granted to the admin user' })
+  @Field(() => [String], {
+    description: 'Specific permissions granted to the admin user',
+  })
   permissions: string[];
 
   @Field(() => GraphQLISODateTime)

@@ -1,4 +1,4 @@
-import { InputType, Field, PartialType, OmitType, ID } from '@nestjs/graphql';
+import { InputType, Field, PartialType, OmitType } from '@nestjs/graphql';
 import { CreateAdminUserInput } from './create-admin-user.input';
 import {
   IsEmail,
