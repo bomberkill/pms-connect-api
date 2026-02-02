@@ -22,7 +22,10 @@ export class CreateGroupInput {
   @MaxLength(500)
   description?: string;
 
-  @Field(() => GroupPrivacy, { nullable: true, defaultValue: GroupPrivacy.PUBLIC })
+  @Field(() => GroupPrivacy, {
+    nullable: true,
+    defaultValue: GroupPrivacy.PUBLIC,
+  })
   @IsOptional()
   @IsEnum(GroupPrivacy)
   privacy?: GroupPrivacy;

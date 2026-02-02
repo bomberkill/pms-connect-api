@@ -8,7 +8,6 @@ export enum CommentStatus {
   DELETED = 'DELETED',
 }
 
-
 export type CommentDocument = Comment & Document;
 
 @Schema({ timestamps: true })
@@ -16,10 +15,20 @@ export class Comment {
   @Prop({ required: true, trim: true })
   content: string;
 
-  @Prop({ type: SchemaTypes.ObjectId, ref: 'User', required: true, index: true })
+  @Prop({
+    type: SchemaTypes.ObjectId,
+    ref: 'User',
+    required: true,
+    index: true,
+  })
   author: User;
 
-  @Prop({ type: SchemaTypes.ObjectId, ref: 'Post', required: true, index: true })
+  @Prop({
+    type: SchemaTypes.ObjectId,
+    ref: 'Post',
+    required: true,
+    index: true,
+  })
   post: Post;
 
   @Prop({ type: SchemaTypes.ObjectId, ref: 'Comment', default: null })
@@ -34,8 +43,13 @@ export class Comment {
   @Prop({ type: [MediaItemSchema], default: [] })
   media: MediaItem[];
 
-  @Prop({type: String, enum: CommentStatus, default: CommentStatus.VISIBLE})
+  @Prop({ type: String, enum: CommentStatus, default: CommentStatus.VISIBLE })
   status: CommentStatus;
 }
 
 export const CommentSchema = SchemaFactory.createForClass(Comment);
+
+// Critical indexes for scalability
+CommentSchema.index({ post: 1, createdAt: -1 }); // Post comments sorted by date
+CommentSchema.index({ parent: 1, createdAt: 1 }); // Nested replies sorted by date
+// CommentSchema.index({ author: 1 }); // Removed: Duplicate of @Prop({ index: true })

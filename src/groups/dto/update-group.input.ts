@@ -5,4 +5,3 @@ import { CreateGroupInput } from './create-group.input';
 export class UpdateGroupInput extends PartialType(CreateGroupInput) {
   // PartialType rend tous les champs de CreateGroupInput optionnels.
 }
-

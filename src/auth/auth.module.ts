@@ -9,15 +9,20 @@ import { CombinedAuthGuard } from './guards/combined-auth.guard';
 import { CombinedStrategy } from './strategies/combined.strategy';
 import { AdminAuthModule } from 'src/admin-auth/admin-auth.module';
 
-
 @Module({
-    imports: [
-        FirebaseModule, // Make sure Firebase Admin App is available
-        PassportModule.register({ defaultStrategy: 'firebase' }),
-        forwardRef(() => UsersModule), // Utiliser forwardRef pour résoudre la dépendance circulaire
-        AdminAuthModule // To interact with UsersService
-      ],
-      providers: [AuthService, FirebaseStrategy, AuthResolver, CombinedAuthGuard, CombinedStrategy],
-      exports: [AuthService, PassportModule, CombinedAuthGuard],
+  imports: [
+    FirebaseModule, // Make sure Firebase Admin App is available
+    PassportModule.register({ defaultStrategy: 'firebase' }),
+    forwardRef(() => UsersModule), // Utiliser forwardRef pour résoudre la dépendance circulaire
+    AdminAuthModule, // To interact with UsersService
+  ],
+  providers: [
+    AuthService,
+    FirebaseStrategy,
+    AuthResolver,
+    CombinedAuthGuard,
+    CombinedStrategy,
+  ],
+  exports: [AuthService, PassportModule, CombinedAuthGuard],
 })
 export class AuthModule {}

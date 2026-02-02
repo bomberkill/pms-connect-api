@@ -7,8 +7,12 @@ import { CommentsService } from '../comments.service';
 export class CommentLoader extends DataLoader<string, CommentDocument> {
   constructor(private readonly commentsService: CommentsService) {
     super(async (keys: readonly string[]) => {
-      const comments = await this.commentsService.findManyByIds(keys as string[]);
-      const commentsMap = new Map(comments.map((comment) => [comment._id.toString(), comment]));
+      const comments = await this.commentsService.findManyByIds(
+        keys as string[],
+      );
+      const commentsMap = new Map(
+        comments.map((comment) => [comment._id.toString(), comment]),
+      );
       return keys.map((key) => commentsMap.get(key) || null);
     });
   }

@@ -7,7 +7,7 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model, FilterQuery, Types } from 'mongoose';
+import { Model, FilterQuery } from 'mongoose';
 import { PubSub } from 'graphql-subscriptions';
 import {
   Group,
@@ -25,7 +25,6 @@ import { NotificationType } from '../notifications/schemas/notification.schema';
 import { GroupsService } from './groups.service';
 import { GetGroupJoinRequestsArgs } from './dto/get-join-requests.args';
 import { PUB_SUB } from '../pubsub/pubsub.module';
-import { UserDocument } from 'src/users/schemas/users.schema';
 
 @Injectable()
 export class JoinGroupRequestsService {
@@ -63,7 +62,9 @@ export class JoinGroupRequestsService {
     }
 
     if (group.privacy === GroupPrivacy.SECRET) {
-      throw new BadRequestException('This group is secret and requires an invitation to join.');
+      throw new BadRequestException(
+        'This group is secret and requires an invitation to join.',
+      );
     }
 
     // For PRIVATE groups, create a join request.
@@ -74,7 +75,9 @@ export class JoinGroupRequestsService {
     });
 
     if (existingRequest) {
-      throw new ConflictException('You already have a pending request to join this group.');
+      throw new ConflictException(
+        'You already have a pending request to join this group.',
+      );
     }
 
     const newRequest = new this.joinRequestModel({
@@ -125,19 +128,33 @@ export class JoinGroupRequestsService {
     }
 
     // 1. Check if the current user is an admin or moderator
-    const currentUserMember = group.members.find(m => m.user.toString() === currentUserId);
-    if (!currentUserMember || currentUserMember.role === GroupMemberRole.MEMBER) {
-      throw new ForbiddenException('You must be an admin or moderator to invite users.');
+    const currentUserMember = group.members.find(
+      (m) => m.user.toString() === currentUserId,
+    );
+    if (
+      !currentUserMember ||
+      currentUserMember.role === GroupMemberRole.MEMBER
+    ) {
+      throw new ForbiddenException(
+        'You must be an admin or moderator to invite users.',
+      );
     }
 
     // 2. Check if the user to invite is already a member
-    const isAlreadyMember = group.members.some(m => m.user.toString() === userIdToInvite);
+    const isAlreadyMember = group.members.some(
+      (m) => m.user.toString() === userIdToInvite,
+    );
     if (isAlreadyMember) {
-      throw new ConflictException('This user is already a member of the group.');
+      throw new ConflictException(
+        'This user is already a member of the group.',
+      );
     }
 
     // 3. Handle based on group privacy
-    if (group.privacy === GroupPrivacy.PUBLIC || group.privacy === GroupPrivacy.SECRET) {
+    if (
+      group.privacy === GroupPrivacy.PUBLIC ||
+      group.privacy === GroupPrivacy.SECRET
+    ) {
       // Directly add the member
       await this.groupsService.addMember(groupId, userIdToInvite);
       // TODO: Notify the added user
@@ -148,11 +165,15 @@ export class JoinGroupRequestsService {
     const existingRequest = await this.joinRequestModel.findOne({
       group: groupId,
       user: userIdToInvite,
-      status: { $in: [GroupJoinRequestStatus.PENDING, GroupJoinRequestStatus.INVITED] },
+      status: {
+        $in: [GroupJoinRequestStatus.PENDING, GroupJoinRequestStatus.INVITED],
+      },
     });
 
     if (existingRequest) {
-      throw new ConflictException('This user already has a pending request or invitation for this group.');
+      throw new ConflictException(
+        'This user already has a pending request or invitation for this group.',
+      );
     }
 
     const newRequest = new this.joinRequestModel({
@@ -175,10 +196,7 @@ export class JoinGroupRequestsService {
     return savedRequest;
   }
 
-  async acceptJoinRequest(
-    requestId: string,
-    adminId: string,
-  ): Promise<void> {
+  async acceptJoinRequest(requestId: string, adminId: string): Promise<void> {
     const request = await this.joinRequestModel.findById(requestId);
 
     if (!request) {
@@ -195,15 +213,22 @@ export class JoinGroupRequestsService {
     );
 
     if (!adminMember || adminMember.role === GroupMemberRole.MEMBER) {
-      throw new ForbiddenException('You must be an admin or moderator to accept requests.');
+      throw new ForbiddenException(
+        'You must be an admin or moderator to accept requests.',
+      );
     }
 
     if (request.status !== GroupJoinRequestStatus.PENDING) {
-      throw new ConflictException(`This request is already ${request.status.toLowerCase()}.`);
+      throw new ConflictException(
+        `This request is already ${request.status.toLowerCase()}.`,
+      );
     }
 
     // Add user to group
-    await this.groupsService.addMember(group._id.toString(), request.user.toString());
+    await this.groupsService.addMember(
+      group._id.toString(),
+      request.user.toString(),
+    );
 
     request.status = GroupJoinRequestStatus.APPROVED;
     await request.save();
@@ -240,15 +265,21 @@ export class JoinGroupRequestsService {
       throw new NotFoundException('Group not found for this request.');
     }
 
-    const adminMember = groupDoc.members.find(m => m.user.toString() === currentUserId);
-    const isAdmin = adminMember && adminMember.role !== GroupMemberRole.MEMBER
+    const adminMember = groupDoc.members.find(
+      (m) => m.user.toString() === currentUserId,
+    );
+    const isAdmin = adminMember && adminMember.role !== GroupMemberRole.MEMBER;
 
     if (!isRequester && !isAdmin) {
-      throw new ForbiddenException('You are not authorized to modify this request.');
+      throw new ForbiddenException(
+        'You are not authorized to modify this request.',
+      );
     }
 
     if (request.status !== GroupJoinRequestStatus.PENDING) {
-      throw new ConflictException(`This request is already ${request.status.toLowerCase()}.`);
+      throw new ConflictException(
+        `This request is already ${request.status.toLowerCase()}.`,
+      );
     }
 
     if (isRequester) {
@@ -277,11 +308,12 @@ export class JoinGroupRequestsService {
       throw new NotFoundException('Group not found.');
     }
     const member = group.members.find(
-      (m) =>
-        m.user.toString() === currentUserId,
+      (m) => m.user.toString() === currentUserId,
     );
     if (!member || member.role === 'MEMBER') {
-      throw new ForbiddenException('You must be an admin or moderator to view join requests.');
+      throw new ForbiddenException(
+        'You must be an admin or moderator to view join requests.',
+      );
     }
 
     return this.joinRequestModel
@@ -300,7 +332,9 @@ export class JoinGroupRequestsService {
   /**
    * Finds all join requests with pagination and filtering.
    */
-  async findAll(args: GetGroupJoinRequestsArgs): Promise<GroupJoinRequestDocument[]> {
+  async findAll(
+    args: GetGroupJoinRequestsArgs,
+  ): Promise<GroupJoinRequestDocument[]> {
     const { skip, limit, groupId, status } = args;
     const filters: FilterQuery<GroupJoinRequestDocument> = {};
 

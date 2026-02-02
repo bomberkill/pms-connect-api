@@ -12,7 +12,6 @@ export enum NotificationType {
   GROUP_JOIN_REQUEST = 'GROUP_JOIN_REQUEST',
   GROUP_JOIN_REQUEST_ACCEPTED = 'GROUP_JOIN_REQUEST_ACCEPTED',
   GROUP_INVITATION = 'GROUP_INVITATION',
-  
 }
 
 export type NotificationDocument = Notification & Document;
@@ -20,7 +19,12 @@ export type NotificationDocument = Notification & Document;
 @Schema({ timestamps: true })
 export class Notification {
   // L'utilisateur qui reçoit la notification
-  @Prop({ type: SchemaTypes.ObjectId, ref: 'User', required: true, index: true })
+  @Prop({
+    type: SchemaTypes.ObjectId,
+    ref: 'User',
+    required: true,
+    index: true,
+  })
   recipient: User;
 
   // L'utilisateur qui a déclenché la notification (ex: celui qui a aimé le post)
@@ -43,3 +47,6 @@ export class Notification {
 }
 
 export const NotificationSchema = SchemaFactory.createForClass(Notification);
+
+// Critical compound index for unread notifications queries
+NotificationSchema.index({ recipient: 1, read: 1, createdAt: -1 });

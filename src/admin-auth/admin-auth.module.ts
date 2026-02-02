@@ -13,11 +13,14 @@ import { AdminAuthGuard } from './guards/admin-auth.guard';
 @Module({
   imports: [
     AdminsModule, // Provides AdminUsersService
-    PassportModule.register({ defaultStrategy: 'admin-jwt', session: false}), // Default for admin routes
+    PassportModule.register({ defaultStrategy: 'admin-jwt', session: false }), // Default for admin routes
     JwtModule.registerAsync({
       imports: [ConfigModule],
       useFactory: async (configService: ConfigService) => ({
-        secret: configService.get<string>('ADMIN_JWT_SECRET', 'DEFAULT_ADMIN_SECRET_KEY_32_CHARS'), // Use a strong, unique secret
+        secret: configService.get<string>(
+          'ADMIN_JWT_SECRET',
+          'DEFAULT_ADMIN_SECRET_KEY_32_CHARS',
+        ), // Use a strong, unique secret
         signOptions: {
           expiresIn: configService.get<string>('ADMIN_JWT_EXPIRES_IN', '1h'), // e.g., 1h, 7d
         },
@@ -26,8 +29,14 @@ import { AdminAuthGuard } from './guards/admin-auth.guard';
     }),
   ],
 
-  providers: [AdminAuthService, AdminLocalStrategy, AdminJwtStrategy, AdminLocalAuthGuard, AdminAuthGuard, AdminAuthResolver],
+  providers: [
+    AdminAuthService,
+    AdminLocalStrategy,
+    AdminJwtStrategy,
+    AdminLocalAuthGuard,
+    AdminAuthGuard,
+    AdminAuthResolver,
+  ],
   exports: [AdminAuthService, JwtModule],
-
 })
 export class AdminAuthModule {}

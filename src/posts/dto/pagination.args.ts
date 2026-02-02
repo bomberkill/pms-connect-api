@@ -8,7 +8,10 @@ export class PaginationArgs {
   @Min(0)
   skip = 0;
 
-  @Field(() => Int, { defaultValue: 10, description: 'Number of items to return' })
+  @Field(() => Int, {
+    defaultValue: 10,
+    description: 'Number of items to return',
+  })
   @IsOptional()
   @Min(1)
   limit = 10;

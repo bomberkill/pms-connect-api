@@ -7,7 +7,6 @@ registerEnumType(PostStatus, {
   description: 'The status of the post (e.g., published or archived)',
 });
 
-
 @ObjectType()
 export class MediaItem {
   @Field()
@@ -46,10 +45,18 @@ export class Post {
   @Field()
   updatedAt: Date;
 
-  @Field(() => Boolean, { nullable: true, description: "Indicates if the current user has liked this post. Null if no user is logged in." })
+  @Field(() => Boolean, {
+    nullable: true,
+    description:
+      'Indicates if the current user has liked this post. Null if no user is logged in.',
+  })
   isLiked?: boolean;
 
-  @Field(() => Boolean, { nullable: true, description: "Indicates if the current user has bookmarked this post. Null if no user is logged in." })
+  @Field(() => Boolean, {
+    nullable: true,
+    description:
+      'Indicates if the current user has bookmarked this post. Null if no user is logged in.',
+  })
   isBookmarked?: boolean;
 
   @Field(() => [MediaItem], { nullable: 'itemsAndList' })

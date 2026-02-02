@@ -24,7 +24,7 @@ export class Post {
   @Prop({ required: true, trim: true })
   content: string;
 
-  @Prop({ type: SchemaTypes.ObjectId, ref: 'User', required: true, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'User', required: true })
   author: User;
 
   @Prop({ type: Number, default: 0 })
@@ -41,8 +41,8 @@ export class Post {
 
   @Prop({ type: [MediaItemSchema], default: [] })
   media: MediaItem[];
-  
-  @Prop({type: String, enum: PostStatus, default: PostStatus.PUBLISHED})
+
+  @Prop({ type: String, enum: PostStatus, default: PostStatus.PUBLISHED })
   status: PostStatus;
 
   // Add declarations for timestamp fields to satisfy TypeScript
@@ -53,3 +53,9 @@ export class Post {
 }
 
 export const PostSchema = SchemaFactory.createForClass(Post);
+
+// Critical indexes for scalability
+PostSchema.index({ createdAt: -1 }); // Feed queries sorted by date
+PostSchema.index({ author: 1, createdAt: -1 }); // User's posts timeline
+PostSchema.index({ group: 1, createdAt: -1 }); // Group posts (when group field added)
+PostSchema.index({ status: 1, createdAt: -1 }); // Published posts only

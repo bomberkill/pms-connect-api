@@ -1,4 +1,13 @@
-import { Resolver, Query, Mutation, Args, Parent, ResolveField, ID, Subscription } from '@nestjs/graphql';
+import {
+  Resolver,
+  Query,
+  Mutation,
+  Args,
+  Parent,
+  ResolveField,
+  ID,
+  Subscription,
+} from '@nestjs/graphql';
 import { UseGuards, Inject } from '@nestjs/common';
 import { FirebaseAuthGuard } from '../auth/guards/firebase-auth.guard';
 import { NotificationsService } from './notifications.service';
@@ -6,7 +15,10 @@ import { Notification } from './models/notification.model';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { UserDocument } from '../users/schemas/users.schema';
 import { PaginationArgs } from '../posts/dto/pagination.args';
-import { NotificationDocument, NotificationType } from  './schemas/notification.schema';
+import {
+  NotificationDocument,
+  NotificationType,
+} from './schemas/notification.schema';
 import { PubSub } from 'graphql-subscriptions';
 import { PUB_SUB } from '../pubsub/pubsub.module';
 
@@ -23,7 +35,10 @@ export class NotificationsResolver {
     @CurrentUser() user: UserDocument,
     @Args() paginationArgs: PaginationArgs,
   ): Promise<Notification[]> {
-    const notifications = await this.notificationsService.findForUser(user._id.toString(), paginationArgs);
+    const notifications = await this.notificationsService.findForUser(
+      user._id.toString(),
+      paginationArgs,
+    );
     return notifications as unknown as Notification[];
   }
 
@@ -33,7 +48,10 @@ export class NotificationsResolver {
     @Args('notificationIds', { type: () => [ID] }) notificationIds: string[],
     @CurrentUser() user: UserDocument,
   ): Promise<boolean> {
-    return this.notificationsService.markAsRead(notificationIds, user._id.toString());
+    return this.notificationsService.markAsRead(
+      notificationIds,
+      user._id.toString(),
+    );
   }
 
   // --- Subscription ---

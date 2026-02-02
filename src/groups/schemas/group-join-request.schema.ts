@@ -13,10 +13,20 @@ export enum GroupJoinRequestStatus {
 
 @Schema({ timestamps: true })
 export class GroupJoinRequest extends Document {
-  @Prop({ type: SchemaTypes.ObjectId, ref: 'Group', required: true, index: true })
+  @Prop({
+    type: SchemaTypes.ObjectId,
+    ref: 'Group',
+    required: true,
+    index: true,
+  })
   group: Group;
 
-  @Prop({ type: SchemaTypes.ObjectId, ref: 'User', required: true, index: true })
+  @Prop({
+    type: SchemaTypes.ObjectId,
+    ref: 'User',
+    required: true,
+    index: true,
+  })
   user: User;
 
   @Prop({
@@ -28,5 +38,6 @@ export class GroupJoinRequest extends Document {
   status: GroupJoinRequestStatus;
 }
 
-export const GroupJoinRequestSchema = SchemaFactory.createForClass(GroupJoinRequest);
+export const GroupJoinRequestSchema =
+  SchemaFactory.createForClass(GroupJoinRequest);
 export type GroupJoinRequestDocument = GroupJoinRequest & Document;

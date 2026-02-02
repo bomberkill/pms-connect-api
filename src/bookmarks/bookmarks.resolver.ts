@@ -1,4 +1,12 @@
-import { Args, ID, Mutation, Parent, Query, ResolveField, Resolver } from '@nestjs/graphql';
+import {
+  Args,
+  ID,
+  Mutation,
+  Parent,
+  Query,
+  ResolveField,
+  Resolver,
+} from '@nestjs/graphql';
 import { BookmarkableType, BookmarkDocument } from './schemas/bookmark.schema';
 import { Bookmark, BookmarkableItemUnion } from './models/bookmark.model';
 import { PaginationArgs } from 'src/posts/dto/pagination.args';
@@ -20,7 +28,11 @@ export class BookmarksResolver {
     @Args('itemType', { type: () => BookmarkableType })
     itemType: BookmarkableType,
   ): Promise<boolean> {
-    return this.bookmarksService.addBookmark(user._id.toString(), itemId, itemType);
+    return this.bookmarksService.addBookmark(
+      user._id.toString(),
+      itemId,
+      itemType,
+    );
   }
 
   @UseGuards(FirebaseAuthGuard)

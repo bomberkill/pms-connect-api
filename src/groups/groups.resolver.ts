@@ -1,14 +1,25 @@
-import { Resolver, Mutation, Args, Query, ID } from '@nestjs/graphql';
-import { UseGuards, ForbiddenException } from '@nestjs/common';
+import {
+  Resolver,
+  Mutation,
+  Args,
+  Query,
+  ID,
+  ResolveField,
+  Parent,
+} from '@nestjs/graphql';
+import { UseGuards } from '@nestjs/common';
 import { GroupsService } from './groups.service';
-import { GroupGQL } from './models/group.model';
+import { GroupGQL, GroupMemberGQL } from './models/group.model';
 import { CreateGroupInput } from './dto/create-group.input';
 import { GetGroupsArgs } from './dto/get-groups.args';
 import { UpdateGroupInput } from './dto/update-group.input';
 import { FirebaseAuthGuard } from '../auth/guards/firebase-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { UserDocument } from '../users/schemas/users.schema';
-import { GroupDocument, GroupMemberRole } from './schemas/group.schema';
+import { GroupDocument } from './schemas/group.schema';
+import { User } from '../users/models/users.model';
+import { Dataloader } from '../dataloader/dataloader.decorator';
+import { UserLoader } from '../users/loaders/users.loader';
 
 @Resolver(() => GroupGQL)
 export class GroupsResolver {
@@ -46,7 +57,11 @@ export class GroupsResolver {
     @CurrentUser() currentUser: UserDocument,
   ): Promise<GroupDocument> {
     // Logic moved to service
-    return this.groupsService.update(groupId, currentUser._id.toString(), updateGroupInput);
+    return this.groupsService.update(
+      groupId,
+      currentUser._id.toString(),
+      updateGroupInput,
+    );
   }
 
   @UseGuards(FirebaseAuthGuard)
@@ -54,15 +69,56 @@ export class GroupsResolver {
   async leaveOrRemoveMember(
     @Args('groupId', { type: () => ID }) groupId: string,
     @CurrentUser() currentUser: UserDocument,
-    @Args('userIdToRemove', { type: () => ID, nullable: true }) userIdToRemove?: string,
+    @Args('userIdToRemove', { type: () => ID, nullable: true })
+    userIdToRemove?: string,
   ): Promise<GroupDocument> {
     // Logic moved to service
-    return this.groupsService.removeMember(groupId, currentUser._id.toString(), userIdToRemove);
+    return this.groupsService.removeMember(
+      groupId,
+      currentUser._id.toString(),
+      userIdToRemove,
+    );
   }
 
-  // This query is public, but in a real app you might want to filter out SECRET groups
   @Query(() => [GroupGQL], { name: 'getGroups' })
   async getGroups(@Args() args: GetGroupsArgs): Promise<GroupDocument[]> {
     return this.groupsService.findAll(args);
+  }
+
+  // --- Field Resolvers ---
+
+  @ResolveField('creator', () => User)
+  async getCreator(
+    @Parent() group: GroupDocument,
+    @Dataloader(UserLoader) userLoader: UserLoader,
+  ): Promise<User> {
+    const creatorId =
+      typeof group.creator === 'string'
+        ? group.creator
+        : (group.creator as any)._id.toString();
+    const user = await userLoader.load(creatorId);
+    return user as unknown as User;
+  }
+
+  @ResolveField('members', () => [GroupMemberGQL])
+  async getMembers(
+    @Parent() group: GroupDocument,
+    @Dataloader(UserLoader) userLoader: UserLoader,
+  ): Promise<GroupMemberGQL[]> {
+    // Note: This still maps ALL members. Ideally we should paginate this via a sub-resolver,
+    // but for now we are fixing the N+1 issue by using the Loader.
+    return Promise.all(
+      group.members.map(async (member) => {
+        const userId =
+          typeof member.user === 'string'
+            ? member.user
+            : (member.user as any)._id.toString();
+        const user = await userLoader.load(userId);
+        return {
+          ...member, // Copy role and joinedAt
+          user: user as unknown as User, // Inject loaded user
+        };
+      }),
+    );
   }
 }

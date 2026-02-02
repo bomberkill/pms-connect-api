@@ -20,7 +20,12 @@ export enum GroupMemberRole {
 
 @Schema({ _id: false, timestamps: { createdAt: 'joinedAt', updatedAt: false } })
 export class GroupMember {
-  @Prop({ type: SchemaTypes.ObjectId, ref: 'User', required: true, index: true })
+  @Prop({
+    type: SchemaTypes.ObjectId,
+    ref: 'User',
+    required: true,
+    index: true,
+  })
   user: User;
 
   @Prop({
@@ -47,7 +52,12 @@ export class Group {
   @Prop({ type: String, trim: true })
   description?: string;
 
-  @Prop({ type: SchemaTypes.ObjectId, ref: 'User', required: true, index: true })
+  @Prop({
+    type: SchemaTypes.ObjectId,
+    ref: 'User',
+    required: true,
+    index: true,
+  })
   creator: User;
 
   @Prop({

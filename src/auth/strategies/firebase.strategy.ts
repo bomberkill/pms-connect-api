@@ -26,7 +26,9 @@ export class FirebaseStrategy extends PassportStrategy(Strategy, 'firebase') {
     // a local user profile based on the Firebase token payload.
     const user = await this.authService.validateAndLinkUser(token);
     if (!user) {
-      throw new UnauthorizedException('User not found or could not be created/linked.');
+      throw new UnauthorizedException(
+        'User not found or could not be created/linked.',
+      );
     }
     return user; // This will be attached to req.user
   }

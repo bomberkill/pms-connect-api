@@ -17,6 +17,9 @@ FROM node:20-alpine AS production
 ENV NODE_ENV=production
 WORKDIR /usr/src/app
 
+# Install curl for healthchecks
+RUN apk add --no-cache curl
+
 # Installer uniquement les dépendances prod
 COPY package.json yarn.lock ./
 RUN yarn install --frozen-lockfile --production=true

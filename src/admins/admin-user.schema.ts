@@ -13,7 +13,13 @@ export enum AdminRole {
 
 @Schema({ timestamps: true }) // Enables createdAt and updatedAt
 export class AdminUser extends Document {
-  @Prop({ type: String, required: true, unique: true, lowercase: true, trim: true })
+  @Prop({
+    type: String,
+    required: true,
+    unique: true,
+    lowercase: true,
+    trim: true,
+  })
   email: string;
 
   @Prop({ type: String, required: true })
@@ -22,7 +28,12 @@ export class AdminUser extends Document {
   @Prop({ type: String, required: true, trim: true })
   name: string; // Full name, or you could split into firstName/lastName
 
-  @Prop({ type: [String], enum: Object.values(AdminRole), required: true, default: [AdminRole.SUPPORT_AGENT] })
+  @Prop({
+    type: [String],
+    enum: Object.values(AdminRole),
+    required: true,
+    default: [AdminRole.SUPPORT_AGENT],
+  })
   roles: AdminRole[];
 
   @Prop({ type: Boolean, default: true })
@@ -50,20 +61,23 @@ export class AdminUser extends Document {
   readonly createdAt: Date;
   readonly updatedAt: Date;
 
-  // Method to compare passwords (not stored in DB, but useful on the model instance)
-  comparePassword: Function
+  // Method to compare
+  comparePassword: (password: string) => Promise<boolean>;
 }
 
 export const AdminUserSchema = SchemaFactory.createForClass(AdminUser);
 
-AdminUserSchema.methods.comparePassword = async function(attempt: string): Promise<boolean> {
-    return bcrypt.compare(attempt, this.passwordHash);
-  }
+AdminUserSchema.methods.comparePassword = async function (
+  attempt: string,
+): Promise<boolean> {
+  return bcrypt.compare(attempt, this.passwordHash);
+};
 // Middleware to hash password before saving
 AdminUserSchema.pre<AdminUserDocument>('save', async function (next) {
   if (this.isModified('passwordHash') || this.isNew) {
     // Only hash if password is new or modified to avoid re-hashing
-    if (!this.passwordHash.startsWith('$2b$')) { // Simple check to see if it's already hashed
+    if (!this.passwordHash.startsWith('$2b$')) {
+      // Simple check to see if it's already hashed
       this.passwordHash = await bcrypt.hash(this.passwordHash, 10);
     }
   }

@@ -592,6 +592,7 @@ type Query {
     """Number of items to skip"""
     skip: Int! = 0
   ): [Comment!]!
+  getConnections(userId: ID!): [User!]!
   getFeed(
     """Number of items to return"""
     limit: Int! = 10
@@ -599,6 +600,10 @@ type Query {
     """Number of items to skip"""
     skip: Int! = 0
   ): [Post!]!
+  getFollowers(userId: ID!): [User!]!
+  getFollowersCount(userId: ID!): Int!
+  getFollowing(userId: ID!): [User!]!
+  getFollowingCount(userId: ID!): Int!
   getGroupById(id: ID!): Group
   getGroupBySlug(slug: String!): Group
   getGroupJoinRequests(groupId: ID!, status: GroupJoinRequestStatusGQL = PENDING): [GroupJoinRequest!]!
@@ -631,6 +636,24 @@ type Query {
     since: DateTime!
   ): Float!
   getPostById(id: ID!): Post
+  getPostsByAuthor(
+    authorId: ID!
+
+    """Number of items to return"""
+    limit: Int! = 10
+
+    """Number of items to skip"""
+    skip: Int! = 0
+  ): [Post!]!
+  getPostsByGroup(
+    groupId: ID!
+
+    """Number of items to return"""
+    limit: Int! = 10
+
+    """Number of items to skip"""
+    skip: Int! = 0
+  ): [Post!]!
   getUserByFirebaseUid(firebaseUid: ID!): User
   getUserById(id: ID!): User
   getUserBySlug(slug: String!): User

@@ -5,7 +5,9 @@ class FollowerInfo {
   @Field(() => ID)
   userId: string;
 
-  @Field(() => Int, { description: "The new number of followers for this user." })
+  @Field(() => Int, {
+    description: 'The new number of followers for this user.',
+  })
   followersCount?: number;
 }
 
@@ -14,7 +16,9 @@ class FollowingInfo {
   @Field(() => ID)
   userId: string;
 
-  @Field(() => Int, { description: "The new number of users this user is following." })
+  @Field(() => Int, {
+    description: 'The new number of users this user is following.',
+  })
   followingCount?: number;
 }
 

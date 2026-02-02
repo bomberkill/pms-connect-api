@@ -13,7 +13,9 @@ export class AuthResolver {
     return this.authService.checkUserExistsByEmail(email);
   }
 
-  @Query(() => CheckUserExistsResponse, { name: 'checkUserExistsByPhoneNumber' })
+  @Query(() => CheckUserExistsResponse, {
+    name: 'checkUserExistsByPhoneNumber',
+  })
   async checkUserExistsByPhoneNumber(
     @Args('phoneNumber', { type: () => String }) phoneNumber: string,
   ): Promise<CheckUserExistsResponse> {

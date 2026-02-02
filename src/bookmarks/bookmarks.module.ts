@@ -11,13 +11,13 @@ import { BookmarkLoader } from 'src/bookmarks/loaders/bookmarks.loader';
 @Module({
   imports: [
     MongooseModule.forFeature([
-      {name: Bookmark.name, schema: BookmarkSchema}
+      { name: Bookmark.name, schema: BookmarkSchema },
     ]),
     forwardRef(() => UsersModule),
     forwardRef(() => PostsModule),
-    DataloaderModule
+    DataloaderModule,
   ],
-  providers: [BookmarksService, BookmarksResolver,BookmarkLoader ],
+  providers: [BookmarksService, BookmarksResolver, BookmarkLoader],
   exports: [BookmarksService, BookmarkLoader],
 })
 export class BookmarksModule {}

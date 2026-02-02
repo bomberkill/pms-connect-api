@@ -1,6 +1,6 @@
-import { Injectable, Scope } from "@nestjs/common";
-import * as DataLoader from "dataloader";
-import { LikesService } from "../likes.service";
+import { Injectable, Scope } from '@nestjs/common';
+import * as DataLoader from 'dataloader';
+import { LikesService } from '../likes.service';
 
 // La clé pour ce loader sera un objet contenant l'ID et le type de l'objet likable, ainsi que l'ID de l'utilisateur.
 export interface LikeLoaderKey {
@@ -9,7 +9,7 @@ export interface LikeLoaderKey {
   userId: string;
 }
 
-@Injectable({scope: Scope.REQUEST})
+@Injectable({ scope: Scope.REQUEST })
 export class LikeLoader extends DataLoader<LikeLoaderKey, boolean> {
   constructor(private readonly likesService: LikesService) {
     super(async (keys: readonly LikeLoaderKey[]) => {
@@ -21,10 +21,13 @@ export class LikeLoader extends DataLoader<LikeLoaderKey, boolean> {
       }
 
       // 2. Utiliser une méthode de service pour trouver tous les likes en une seule requête
-      const likedItemIds = await this.likesService.findUserLikesForItems(keys, userId);
+      const likedItemIds = await this.likesService.findUserLikesForItems(
+        keys,
+        userId,
+      );
 
       // 3. Mapper les résultats pour correspondre à l'ordre des clés d'entrée
-      return keys.map(key => likedItemIds.has(key.likeableId));
+      return keys.map((key) => likedItemIds.has(key.likeableId));
     });
   }
 }

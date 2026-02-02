@@ -2,14 +2,6 @@ import { InputType, Field } from '@nestjs/graphql';
 import { IsString, IsOptional, IsEnum, IsNotEmpty } from 'class-validator';
 import { PostStatus } from '../schemas/posts.schema';
 
-
-enum MediaType {
-  IMAGE = 'IMAGE',
-  VIDEO = 'VIDEO',
-  DOCUMENT = 'DOCUMENT',
-  NONE = 'NONE',
-}
-
 @InputType()
 export class UpdatePostInput {
   @Field({ nullable: true })
@@ -22,5 +14,4 @@ export class UpdatePostInput {
   @IsOptional()
   @IsEnum(PostStatus)
   status?: PostStatus;
-
 }

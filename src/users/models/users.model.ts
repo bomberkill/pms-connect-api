@@ -7,7 +7,6 @@ import {
   GraphQLISODateTime,
 } from '@nestjs/graphql';
 
-
 export enum UserTypeGQL {
   INDIVIDUAL = 'INDIVIDUAL',
   LEGAL_ENTITY = 'LEGAL_ENTITY',
@@ -55,7 +54,8 @@ export enum SpecialityGQL {
 
 registerEnumType(SpecialityGQL, {
   name: 'Speciality',
-  description: 'Medical specialty or field of activity for an individual professional.',
+  description:
+    'Medical specialty or field of activity for an individual professional.',
 });
 
 export enum EntityTypeGQL {
@@ -87,7 +87,10 @@ registerEnumType(EntityTypeGQL, {
     'Represents a professional accreditation document or its details.',
 })
 export class ProfessionalAccreditationObject {
-  @Field({ nullable: true, description: 'Type of accreditation (e.g., Diploma, Certificate).' })
+  @Field({
+    nullable: true,
+    description: 'Type of accreditation (e.g., Diploma, Certificate).',
+  })
   accreditationType?: string;
 
   @Field({ nullable: true, description: 'Reference number of the document.' })
@@ -112,7 +115,9 @@ export class ProfessionalAccreditationObject {
   issuingAuthority?: string;
 }
 
-@ObjectType('LocationObject', { description: 'Represents a geographical location.' })
+@ObjectType('LocationObject', {
+  description: 'Represents a geographical location.',
+})
 export class LocationObject {
   @Field({ nullable: true })
   addressLine1?: string;
@@ -147,10 +152,14 @@ export class LocationObject {
 })
 export abstract class User {
   // Common fields for both Individual and Legal Entity
-  @Field(() => ID, { description: 'Unique identifier for the user (MongoDB ObjectId)' })
+  @Field(() => ID, {
+    description: 'Unique identifier for the user (MongoDB ObjectId)',
+  })
   id: string;
 
-  @Field(() => ID, { description: "User's unique identifier from Firebase Authentication" })
+  @Field(() => ID, {
+    description: "User's unique identifier from Firebase Authentication",
+  })
   firebaseUid: string;
 
   @Field()
@@ -180,7 +189,10 @@ export abstract class User {
   @Field({ nullable: true })
   bio?: string;
 
-  @Field(() => LocationObject, { nullable: true, description: 'User location details' })
+  @Field(() => LocationObject, {
+    nullable: true,
+    description: 'User location details',
+  })
   location?: LocationObject;
 
   @Field({ nullable: true })
@@ -189,25 +201,40 @@ export abstract class User {
   @Field(() => AccountStatusGQL)
   accountStatus: AccountStatusGQL;
 
-  @Field(() => [ID], { defaultValue: [], description: 'List of connected user IDs' })
+  @Field(() => [ID], {
+    defaultValue: [],
+    description: 'List of connected user IDs',
+  })
   connections: string[];
 
-  @Field(() => [ID], { defaultValue: [], description: 'List of follower user IDs' })
+  @Field(() => [ID], {
+    defaultValue: [],
+    description: 'List of follower user IDs',
+  })
   followers: string[];
 
-  @Field(() => [ID], { defaultValue: [], description: 'List of user IDs this user is following' })
+  @Field(() => [ID], {
+    defaultValue: [],
+    description: 'List of user IDs this user is following',
+  })
   following: string[];
 
-  @Field(() => [ID], { defaultValue: [], description: 'List of blocked user IDs' })
+  @Field(() => [ID], {
+    defaultValue: [],
+    description: 'List of blocked user IDs',
+  })
   blockedUsers: string[];
 
-  @Field(() => [String], {defaultValue: []})
+  @Field(() => [String], { defaultValue: [] })
   fcmTokens: string[];
 
-  @Field({defaultValue: 'en'})
+  @Field({ defaultValue: 'en' })
   language: string;
 
-  @Field(() => [String], { description: 'Authentication providers used by the user (e.g., password, google.com)' })
+  @Field(() => [String], {
+    description:
+      'Authentication providers used by the user (e.g., password, google.com)',
+  })
   providers: string[];
 
   @Field(() => GraphQLISODateTime)
@@ -220,23 +247,35 @@ export abstract class User {
   lastLoginAt?: Date;
 }
 
-
-@ObjectType({ description: 'Represents an individual healthcare professional.', implements: () => User })
+@ObjectType({
+  description: 'Represents an individual healthcare professional.',
+  implements: () => User,
+})
 export class IndividualUserObject extends User {
   @Field()
   firstName: string;
   @Field()
   lastName: string;
-  @Field(() => SpecialityGQL, { description: 'Medical specialty or field of activity' })
+  @Field(() => SpecialityGQL, {
+    description: 'Medical specialty or field of activity',
+  })
   speciality: SpecialityGQL;
-  @Field({ nullable: true, description: 'Professional title (e.g., Dr., Nurse)' })
+  @Field({
+    nullable: true,
+    description: 'Professional title (e.g., Dr., Nurse)',
+  })
   professionalTitle?: string;
 }
 
-@ObjectType({ description: 'Represents a legal entity in the healthcare sector.', implements: () => User })
+@ObjectType({
+  description: 'Represents a legal entity in the healthcare sector.',
+  implements: () => User,
+})
 export class LegalEntityUserObject extends User {
   @Field({ description: 'Official name of the legal entity' })
   entityName: string;
-  @Field(() => EntityTypeGQL, { description: 'Type of legal entity (e.g., Hospital, Clinic, Association)' })
+  @Field(() => EntityTypeGQL, {
+    description: 'Type of legal entity (e.g., Hospital, Clinic, Association)',
+  })
   entityType: EntityTypeGQL;
 }

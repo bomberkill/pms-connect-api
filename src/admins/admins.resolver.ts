@@ -8,17 +8,16 @@ import { AdminAuthGuard } from '../admin-auth/guards/admin-auth.guard'; // Impor
 // import { Roles } from '../auth/decorators/roles.decorator';
 import { AdminUserDocument } from './admin-user.schema';
 // import { RolesGuard } from '../auth/guards/roles.guard';
-import { AdminRoleGQL } from './admin-user.model';
 
 @Resolver(() => AdminUser)
 export class AdminsResolver {
-    constructor(private readonly adminUsersService: AdminsService) {}
+  constructor(private readonly adminUsersService: AdminsService) {}
 
   // IMPORTANT: All admin resolvers should be protected by authentication and authorization guards.
   // The @UseGuards and @Roles decorators are examples and assume you'll create these.
 
-  // @UseGuards(AdminAuthGuard, RolesGuard)
-  // @Roles(AdminRoleGQL.SUPER_ADMIN) // Example: Only SUPER_ADMIN can create admins
+  @UseGuards(AdminAuthGuard)
+  // @Roles(AdminRoleGQL.SUPER_ADMIN) // TODO: Implement Role-based access control
   @Mutation(() => AdminUser, { name: 'createAdminUser' })
   async createAdminUser(
     @Args('createAdminUserInput') createAdminUserInput: CreateAdminUserInput,
@@ -26,7 +25,7 @@ export class AdminsResolver {
     return this.adminUsersService.create(createAdminUserInput);
   }
 
-//   @UseGuards(AdminAuthGuard)
+  @UseGuards(AdminAuthGuard)
   @Query(() => [AdminUser], { name: 'allAdminUsers' })
   async getAllAdminUsers(): Promise<AdminUserDocument[]> {
     return this.adminUsersService.findAll();
@@ -44,8 +43,8 @@ export class AdminsResolver {
     return adminDoc;
   }
 
-  // @UseGuards(AdminAuthGuard, RolesGuard)
-  // @Roles(AdminRoleGQL.SUPER_ADMIN) // Example: Only SUPER_ADMIN can update admins
+  @UseGuards(AdminAuthGuard)
+  // @Roles(AdminRoleGQL.SUPER_ADMIN) // TODO: Implement Role-based access control
   @Mutation(() => AdminUser, { name: 'updateAdminUser' })
   async updateAdminUser(
     @Args('id', { type: () => ID }) id: string,

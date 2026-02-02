@@ -26,6 +26,12 @@ import { CommentLoader } from './posts/loaders/comments.loader';
 import { BookmarkLoader } from './bookmarks/loaders/bookmarks.loader';
 import { BookmarksModule } from './bookmarks/bookmarks.module';
 import { GroupsModule } from './groups/groups.module';
+import { FollowsModule } from './follows/follows.module';
+import { CacheModule } from './cache/cache.module';
+import { CacheInvalidationService } from './cache/cache-invalidation.service';
+import { ThrottlerModule } from '@nestjs/throttler';
+import { APP_GUARD } from '@nestjs/core';
+import { GqlThrottlerGuard } from './common/guards/gql-throttler.guard';
 
 @Module({
   imports: [
@@ -47,9 +53,14 @@ import { GroupsModule } from './groups/groups.module';
 
               // Le client envoie { headers: { Authorization: 'Bearer <token>' } }
               // Nous devons donc extraire le token de cet objet.
-              const authorizationHeader = (connectionParams?.headers as any)?.Authorization || (connectionParams?.headers as any)?.authorization;
+              const authorizationHeader =
+                (connectionParams?.headers as any)?.Authorization ||
+                (connectionParams?.headers as any)?.authorization;
 
-              if (authorizationHeader && typeof authorizationHeader === 'string') {
+              if (
+                authorizationHeader &&
+                typeof authorizationHeader === 'string'
+              ) {
                 const token = authorizationHeader.replace('Bearer ', '');
                 try {
                   // Valider le token et récupérer l'utilisateur
@@ -58,7 +69,10 @@ import { GroupsModule } from './groups/groups.module';
                   (extra as any).user = user;
                   return { user };
                 } catch (e) {
-                  console.error('Subscription authentication failed:', e.message);
+                  console.error(
+                    'Subscription authentication failed:',
+                    e.message,
+                  );
                   // Rejeter la connexion si le token est invalide
                   return false;
                 }
@@ -70,19 +84,83 @@ import { GroupsModule } from './groups/groups.module';
           },
         },
         sortSchema: true,
+
+        // Enable GraphQL Playground with enhanced documentation
+        playground: {
+          settings: {
+            'request.credentials': 'include', // Enable cookies/auth
+            'schema.polling.enable': false,
+          },
+          tabs: [
+            {
+              name: 'Welcome to PMS Connect API',
+              endpoint: '/graphql',
+              query: `# 🚀 Welcome to PMS Connect GraphQL API
+#
+# This is an interactive GraphQL playground where you can:
+# - Explore the API schema (click "DOCS" on the right →)
+# - Test queries and mutations
+# - View real-time documentation
+#
+# 📚 Quick Start:
+# 1. Click "DOCS" to see all available queries/mutations
+# 2. Use Ctrl+Space for autocomplete
+# 3. Add authentication header for protected routes:
+#    HTTP HEADERS panel (bottom left):
+#    {
+#      "Authorization": "Bearer YOUR_TOKEN_HERE"
+#    }
+#
+# 💡 Example Query:
+
+query GetAllUsers {
+  getAllUsers {
+    _id
+    email
+    slug
+    firstName
+    lastName
+  }
+}`,
+            },
+          ],
+        },
+
+        // Enable introspection for documentation
+        introspection: true,
+
         graphiql: true,
         context: async (ctx) => {
           // For HTTP, ctx is { req, res }. For WS, ctx is { connection, extra }.
-          if ('req' in ctx) { // HTTP request
+          if ('req' in ctx) {
+            // HTTP request
             const req = ctx.req;
             const context: any = { req, user: (req as any).user };
             const contextId = ContextIdFactory.getByRequest(req);
-            const dataloaderService = await moduleRef.resolve(DataloaderService, contextId, { strict: false });
-            const userLoader = await moduleRef.resolve(UserLoader, contextId, { strict: false });
-            const likeLoader = await moduleRef.resolve(LikeLoader, contextId, { strict: false });
-            const postLoader = await moduleRef.resolve(PostLoader, contextId, { strict: false });
-            const commentLoader = await moduleRef.resolve(CommentLoader, contextId, { strict: false });
-            const bookmarkLoader = await moduleRef.resolve(BookmarkLoader, contextId, { strict: false });
+            const dataloaderService = await moduleRef.resolve(
+              DataloaderService,
+              contextId,
+              { strict: false },
+            );
+            const userLoader = await moduleRef.resolve(UserLoader, contextId, {
+              strict: false,
+            });
+            const likeLoader = await moduleRef.resolve(LikeLoader, contextId, {
+              strict: false,
+            });
+            const postLoader = await moduleRef.resolve(PostLoader, contextId, {
+              strict: false,
+            });
+            const commentLoader = await moduleRef.resolve(
+              CommentLoader,
+              contextId,
+              { strict: false },
+            );
+            const bookmarkLoader = await moduleRef.resolve(
+              BookmarkLoader,
+              contextId,
+              { strict: false },
+            );
             dataloaderService.setLoader(UserLoader, userLoader);
             dataloaderService.setLoader(LikeLoader, likeLoader);
             dataloaderService.setLoader(PostLoader, postLoader);
@@ -90,7 +168,8 @@ import { GroupsModule } from './groups/groups.module';
             dataloaderService.setLoader(BookmarkLoader, bookmarkLoader);
             context.dataloaderService = dataloaderService;
             return context;
-          } else { // WebSocket connection
+          } else {
+            // WebSocket connection
             // Pour les souscriptions, le contexte est peuplé par onConnect.
             // 'extra' contient les données persistantes de la connexion WebSocket.
             // Nous retournons l'objet `extra` pour que `context.user` soit accessible.
@@ -103,7 +182,7 @@ import { GroupsModule } from './groups/groups.module';
       imports: [ConfigModule],
       useFactory: async (configService: ConfigService) => ({
         uri: configService.get<string>('MONGODB_URI'),
-        dbName: "pmsconnectdb"
+        dbName: 'pmsconnectdb',
       }),
       inject: [ConfigService],
     }),
@@ -119,8 +198,28 @@ import { GroupsModule } from './groups/groups.module';
     PubSubModule,
     BookmarksModule,
     GroupsModule,
+    FollowsModule,
+
+    // Cache Module (Redis with in-memory fallback)
+    CacheModule,
+
+    // Rate Limiting
+    ThrottlerModule.forRoot([
+      {
+        ttl: 60000, // 60 seconds
+        limit: 100, // 100 requests per minute
+      },
+    ]),
   ],
   controllers: [AppController],
-  providers: [AppService, AuthService],
+  providers: [
+    AppService,
+    AuthService,
+    CacheInvalidationService,
+    {
+      provide: APP_GUARD,
+      useClass: GqlThrottlerGuard,
+    },
+  ],
 })
 export class AppModule {}

@@ -20,14 +20,15 @@ export class ApiAuthGuard extends AuthGuard(['firebase', 'admin-jwt']) {
   }
 
   // Étape 2: Gérer le résultat et désactiver les sessions
-  handleRequest(err, user, info, context, status) {
+  handleRequest(err, user, info) {
     // Cette méthode est appelée après qu'une des stratégies a réussi ou que toutes ont échoué.
     // En la surchargeant, nous court-circuitons le comportement par défaut qui appelle `req.logIn()`.
 
     // Si une erreur s'est produite (par ex. un token invalide), `info` contiendra souvent l'erreur.
     // Le problème est que si la première stratégie (`firebase`) échoue avec une erreur,
     // la chaîne s'arrête et la stratégie `admin-jwt` n'est jamais essayée.
-    const errorMessage = info instanceof Error ? info.message : 'Authentication Failed';
+    const errorMessage =
+      info instanceof Error ? info.message : 'Authentication Failed';
 
     if (err || !user) {
       throw err || new UnauthorizedException(errorMessage);

@@ -10,7 +10,10 @@ export class GetGroupsArgs extends PaginationArgs {
   @IsString()
   search?: string;
 
-  @Field(() => GroupPrivacy, { nullable: true, description: 'Filter by privacy level' })
+  @Field(() => GroupPrivacy, {
+    nullable: true,
+    description: 'Filter by privacy level',
+  })
   @IsOptional()
   @IsEnum(GroupPrivacy)
   privacy?: GroupPrivacy;
