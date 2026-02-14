@@ -665,6 +665,7 @@ type Query {
     """Number of items to skip"""
     skip: Int! = 0
   ): [Bookmark!]!
+  unreadNotificationsCount: Float!
 }
 
 input RequestAdminPasswordResetInput {

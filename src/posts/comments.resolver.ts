@@ -25,7 +25,7 @@ import { User } from 'src/users/models/users.model';
 import { Post } from './models/posts.model';
 import { CreateCommentInput } from './dto/create-comment.input';
 import { CurrentUser } from 'src/auth/decorators/current-user.decorator';
-import { FirebaseAuthGuard } from 'src/auth/guards/firebase-auth.guard';
+import { CombinedAuthGuard } from 'src/auth/guards/combined-auth.guard';
 import { PaginationArgs } from './dto/pagination.args';
 import { PUB_SUB } from 'src/pubsub/pubsub.module';
 import { BookmarkLoader } from 'src/bookmarks/loaders/bookmarks.loader';
@@ -36,11 +36,11 @@ export class CommentsResolver {
   constructor(
     private readonly commentsService: CommentsService,
     @Inject(PUB_SUB) private readonly pubSub: PubSub,
-  ) {}
+  ) { }
 
   // --- Query ---
 
-  @UseGuards(FirebaseAuthGuard)
+  @UseGuards(CombinedAuthGuard)
   @Query(() => [Comment], { name: 'getCommentsByPost' })
   async getCommentsByPost(
     @Args('postId', { type: () => ID }) postId: string,
@@ -49,7 +49,7 @@ export class CommentsResolver {
     return this.commentsService.findCommentsByPost(postId, paginationArgs);
   }
 
-  @UseGuards(FirebaseAuthGuard)
+  @UseGuards(CombinedAuthGuard)
   @Query(() => [Comment], { name: 'getCommentReplies' })
   async getCommentReplies(
     @Args('parentId', { type: () => ID }) parentId: string,
@@ -58,7 +58,7 @@ export class CommentsResolver {
     return this.commentsService.findRepliesForComment(parentId, paginationArgs);
   }
 
-  @UseGuards(FirebaseAuthGuard) // Protéger la lecture pour s'assurer que l'utilisateur est connecté
+  @UseGuards(CombinedAuthGuard) // Protéger la lecture pour s'assurer que l'utilisateur est connecté
   @Query(() => Comment, { name: 'getCommentById', nullable: true })
   async getCommentById(
     @Args('id', { type: () => ID }) id: string,
@@ -68,7 +68,7 @@ export class CommentsResolver {
 
   // --- Mutations ---
 
-  @UseGuards(FirebaseAuthGuard)
+  @UseGuards(CombinedAuthGuard)
   @Mutation(() => Comment, { name: 'addComment' })
   async addComment(
     @Args('createCommentInput') createCommentInput: CreateCommentInput,
@@ -80,7 +80,7 @@ export class CommentsResolver {
     );
   }
 
-  @UseGuards(FirebaseAuthGuard)
+  @UseGuards(CombinedAuthGuard)
   @Mutation(() => Boolean, { name: 'removeComment' })
   async removeComment(
     @Args('commentId', { type: () => ID }) commentId: string,

@@ -1,6 +1,6 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
-import { ValidationPipe } from '@nestjs/common';
+import { BadRequestException, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 async function bootstrap() {
@@ -24,6 +24,10 @@ async function bootstrap() {
       whitelist: true,
       transform: true,
       forbidNonWhitelisted: false, // Allow extra properties for GraphQL args
+      exceptionFactory: (errors) => {
+        console.error('VALIDATION ERROR', JSON.stringify(errors, null, 2));
+        return new BadRequestException(errors);
+      }
     }),
   );
 
