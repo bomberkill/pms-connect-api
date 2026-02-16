@@ -13,7 +13,7 @@ import { GroupGQL, GroupMemberGQL } from './models/group.model';
 import { CreateGroupInput } from './dto/create-group.input';
 import { GetGroupsArgs } from './dto/get-groups.args';
 import { UpdateGroupInput } from './dto/update-group.input';
-import { FirebaseAuthGuard } from '../auth/guards/firebase-auth.guard';
+import { CombinedAuthGuard } from '../auth/guards/combined-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { UserDocument } from '../users/schemas/users.schema';
 import { GroupDocument } from './schemas/group.schema';
@@ -23,9 +23,9 @@ import { UserLoader } from '../users/loaders/users.loader';
 
 @Resolver(() => GroupGQL)
 export class GroupsResolver {
-  constructor(private readonly groupsService: GroupsService) {}
+  constructor(private readonly groupsService: GroupsService) { }
 
-  @UseGuards(FirebaseAuthGuard)
+  @UseGuards(CombinedAuthGuard)
   @Mutation(() => GroupGQL, { name: 'createGroup' })
   async createGroup(
     @Args('createGroupInput') createGroupInput: CreateGroupInput,
@@ -34,6 +34,7 @@ export class GroupsResolver {
     return this.groupsService.create(createGroupInput, currentUser);
   }
 
+  @UseGuards(CombinedAuthGuard)
   @Query(() => GroupGQL, { name: 'getGroupBySlug', nullable: true })
   async getGroupBySlug(
     @Args('slug', { type: () => String }) slug: string,
@@ -42,6 +43,7 @@ export class GroupsResolver {
     return this.groupsService.findBySlug(slug);
   }
 
+  @UseGuards(CombinedAuthGuard)
   @Query(() => GroupGQL, { name: 'getGroupById', nullable: true })
   async getGroupById(
     @Args('id', { type: () => ID }) id: string,
@@ -49,7 +51,7 @@ export class GroupsResolver {
     return this.groupsService.findGroupById(id);
   }
 
-  @UseGuards(FirebaseAuthGuard)
+  @UseGuards(CombinedAuthGuard)
   @Mutation(() => GroupGQL, { name: 'updateGroup' })
   async updateGroup(
     @Args('groupId', { type: () => ID }) groupId: string,
@@ -64,7 +66,7 @@ export class GroupsResolver {
     );
   }
 
-  @UseGuards(FirebaseAuthGuard)
+  @UseGuards(CombinedAuthGuard)
   @Mutation(() => GroupGQL, { name: 'leaveOrRemoveMemberFromGroup' })
   async leaveOrRemoveMember(
     @Args('groupId', { type: () => ID }) groupId: string,
@@ -80,6 +82,7 @@ export class GroupsResolver {
     );
   }
 
+  @UseGuards(CombinedAuthGuard)
   @Query(() => [GroupGQL], { name: 'getGroups' })
   async getGroups(@Args() args: GetGroupsArgs): Promise<GroupDocument[]> {
     return this.groupsService.findAll(args);

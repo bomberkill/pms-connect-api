@@ -21,7 +21,7 @@ export class NotificationsService {
     @Inject(PUB_SUB) private readonly pubSub: PubSub,
     @InjectModel(User.name) private userModel: Model<UserDocument>,
     @Inject(FIREBASE_MESSAGING) private readonly firebaseMessaging: Messaging,
-  ) {}
+  ) { }
 
   async create(dto: CreateNotificationDto): Promise<void> {
     const { recipients, sender, ...notificationData } = dto;
@@ -77,6 +77,10 @@ export class NotificationsService {
     return result.modifiedCount > 0;
   }
 
+  async countUnread(userId: string): Promise<number> {
+    return this.notificationModel.countDocuments({ recipient: userId, read: false }).exec();
+  }
+
   // We accept a partial document here because the object from insertMany is not fully populated.
   // The `recipient` and `sender` will be string IDs.
   private async sendPushNotification(
@@ -115,28 +119,65 @@ export class NotificationsService {
         recipient.language,
       );
 
-      const response = await this.firebaseMessaging.sendEachForMulticast({
-        tokens: recipient.fcmTokens,
-        notification: {
-          title: 'New Notification on PMS-Connect',
-          body: message,
-        },
-        // You can add more data here to help the client navigate
+      const uniqueTokens = [...new Set(recipient.fcmTokens)];
+      const messagePayload: any = {
+        tokens: uniqueTokens,
+        // We use Data-only messages to prevent the browser/OS from automatically showing a default notification.
+        // This allows the Service Worker to handle the display (adding icons, click actions) exclusively.
         data: {
+          title: 'PMS-Connect',
+          body: message,
           type: notification.type,
           entityId: notification.entityId?.toString() || '',
           senderId: notification.sender.toString(),
+          url: this.getNotificationUrl(notification),
         },
-      });
+        // Android specific config (High priority for data delivery)
+        android: {
+          priority: 'high',
+        },
+        // iOS specific config (Content available for background fetch)
+        apns: {
+          payload: {
+            aps: {
+              'content-available': 1,
+            },
+          },
+        },
+      };
+
+      const response = await this.firebaseMessaging.sendEachForMulticast(messagePayload);
 
       console.log(
         `Successfully sent ${response.successCount} push notifications.`,
       );
+
       if (response.failureCount > 0) {
-        // Here you can add logic to clean up invalid/expired tokens from the user's document
-        console.error(
-          `Failed to send ${response.failureCount} push notifications.`,
-        );
+        const tokensToRemove: string[] = [];
+
+        response.responses.forEach((resp, idx) => {
+          if (!resp.success && resp.error) {
+            const errorCode = resp.error.code;
+            const failedToken = recipient.fcmTokens[idx];
+
+            console.error(`Failed to send to token ${failedToken}: ${errorCode}`);
+
+            if (
+              errorCode === 'messaging/registration-token-not-registered' ||
+              errorCode === 'messaging/invalid-registration-token'
+            ) {
+              tokensToRemove.push(failedToken);
+            }
+          }
+        });
+
+        if (tokensToRemove.length > 0) {
+          console.log(`Removing ${tokensToRemove.length} invalid tokens for user ${notification.recipient}`);
+          await this.userModel.updateOne(
+            { _id: notification.recipient },
+            { $pull: { fcmTokens: { $in: tokensToRemove } } }
+          );
+        }
       }
     } catch (error) {
       console.error('Error sending push notification:', error);
@@ -151,10 +192,13 @@ export class NotificationsService {
   ): string {
     let senderName = 'Someone';
     if (sender) {
-      if (sender.get('userType') === 'INDIVIDUAL') {
-        senderName = `${(sender as any).firstName} ${(sender as any).lastName}`;
-      } else if (sender.get('userType') === 'LEGAL_ENTITY') {
-        senderName = (sender as any).entityName;
+      // sender is a POJO because of .lean(), so we access properties directly
+      // casting to any to avoid TS issues if UserDocument definition is strict
+      const s = sender as any;
+      if (s.userType === 'INDIVIDUAL') {
+        senderName = `${s.firstName} ${s.lastName}`;
+      } else if (s.userType === 'LEGAL_ENTITY') {
+        senderName = s.entityName;
       }
     }
 
@@ -185,8 +229,36 @@ export class NotificationsService {
       case 'POST_LIKE':
         return messages[lang]?.POST_LIKE || messages.en.POST_LIKE;
       // Add other cases here...
+      case 'COMMENT_LIKE':
+        return messages[lang]?.COMMENT_LIKE || messages.en.COMMENT_LIKE;
+      case 'POST_COMMENT':
+        return messages[lang]?.POST_COMMENT || messages.en.POST_COMMENT;
+      case 'NEW_FOLLOWER':
+        return messages[lang]?.NEW_FOLLOWER || messages.en.NEW_FOLLOWER;
+      case 'CONNECTION_REQUEST':
+        return messages[lang]?.CONNECTION_REQUEST || messages.en.CONNECTION_REQUEST;
+      case 'CONNECTION_ACCEPTED':
+        return messages[lang]?.CONNECTION_ACCEPTED || messages.en.CONNECTION_ACCEPTED;
       default:
         return messages[lang]?.default || messages.en.default;
+    }
+  }
+
+  private getNotificationUrl(
+    notification: Pick<NotificationDocument, 'type'> & { entityId?: any; sender?: any },
+  ): string {
+    switch (notification.type) {
+      case 'POST_LIKE':
+      case 'POST_COMMENT':
+        return `/post/${notification.entityId}`;
+      case 'NEW_FOLLOWER':
+      case 'CONNECTION_REQUEST':
+      case 'CONNECTION_ACCEPTED':
+        // Ideally redirect to profile, but might need slug. 
+        // fallback to notifications page or use ID if frontend handles it
+        return `/notifications`;
+      default:
+        return '/notifications';
     }
   }
 }

@@ -9,7 +9,7 @@ import {
   Subscription,
 } from '@nestjs/graphql';
 import { UseGuards, Inject } from '@nestjs/common';
-import { FirebaseAuthGuard } from '../auth/guards/firebase-auth.guard';
+import { CombinedAuthGuard } from '../auth/guards/combined-auth.guard';
 import { NotificationsService } from './notifications.service';
 import { Notification } from './models/notification.model';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
@@ -27,9 +27,9 @@ export class NotificationsResolver {
   constructor(
     private readonly notificationsService: NotificationsService,
     @Inject(PUB_SUB) private readonly pubSub: PubSub,
-  ) {}
+  ) { }
 
-  @UseGuards(FirebaseAuthGuard)
+  @UseGuards(CombinedAuthGuard)
   @Query(() => [Notification], { name: 'getMyNotifications' })
   async getMyNotifications(
     @CurrentUser() user: UserDocument,
@@ -42,7 +42,7 @@ export class NotificationsResolver {
     return notifications as unknown as Notification[];
   }
 
-  @UseGuards(FirebaseAuthGuard)
+  @UseGuards(CombinedAuthGuard)
   @Mutation(() => Boolean, { name: 'markNotificationsAsRead' })
   async markNotificationsAsRead(
     @Args('notificationIds', { type: () => [ID] }) notificationIds: string[],
@@ -52,6 +52,12 @@ export class NotificationsResolver {
       notificationIds,
       user._id.toString(),
     );
+  }
+
+  @UseGuards(CombinedAuthGuard)
+  @Query(() => Number, { name: 'unreadNotificationsCount' })
+  async unreadNotificationsCount(@CurrentUser() user: UserDocument): Promise<number> {
+    return this.notificationsService.countUnread(user._id.toString());
   }
 
   // --- Subscription ---

@@ -13,7 +13,7 @@ import { PostsService } from './posts.service';
 import { Post } from './models/posts.model';
 import { CreatePostInput } from './dto/create-post.input';
 import { UpdatePostInput } from './dto/update-post.input';
-import { FirebaseAuthGuard } from '../auth/guards/firebase-auth.guard';
+import { CombinedAuthGuard } from '../auth/guards/combined-auth.guard';
 import { PaginationArgs } from './dto/pagination.args';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { UserDocument } from '../users/schemas/users.schema';
@@ -26,9 +26,9 @@ import { Date } from 'mongoose';
 
 @Resolver(() => Post)
 export class PostsResolver {
-  constructor(private readonly postsService: PostsService) {}
+  constructor(private readonly postsService: PostsService) { }
 
-  @UseGuards(FirebaseAuthGuard)
+  @UseGuards(CombinedAuthGuard)
   @Mutation(() => Post, { name: 'createPost' })
   async createPost(
     @Args('createPostInput') createPostInput: CreatePostInput,
@@ -38,7 +38,7 @@ export class PostsResolver {
     // return postDocument as unknown as Post;
   }
 
-  @UseGuards(FirebaseAuthGuard) // Protéger la lecture pour s'assurer que l'utilisateur est connecté
+  @UseGuards(CombinedAuthGuard) // Protéger la lecture pour s'assurer que l'utilisateur est connecté
   @Query(() => Post, { name: 'getPostById', nullable: true })
   async getPostById(
     @Args('id', { type: () => ID }) id: string,
@@ -47,7 +47,7 @@ export class PostsResolver {
     // return postDocument as unknown as Post;
   }
 
-  @UseGuards(FirebaseAuthGuard)
+  @UseGuards(CombinedAuthGuard)
   @Mutation(() => Boolean, { name: 'removePost' })
   async removePost(
     @Args('id', { type: () => ID }) id: string,
@@ -56,7 +56,7 @@ export class PostsResolver {
     return this.postsService.remove(id, user._id.toString());
   }
 
-  @UseGuards(FirebaseAuthGuard)
+  @UseGuards(CombinedAuthGuard)
   @Query(() => [Post], { name: 'getFeed' })
   async getFeed(
     @CurrentUser() user: UserDocument,
@@ -90,7 +90,7 @@ export class PostsResolver {
     }
   }
 
-  @UseGuards(FirebaseAuthGuard)
+  @UseGuards(CombinedAuthGuard)
   @Query(() => Number, { name: 'getNewFeedItemsCount' })
   async getNewFeedItemsCount(
     @CurrentUser() user: UserDocument,
@@ -108,7 +108,7 @@ export class PostsResolver {
     // }
   }
 
-  @UseGuards(FirebaseAuthGuard)
+  @UseGuards(CombinedAuthGuard)
   @Query(() => [Post], { name: 'getPostsByAuthor' })
   async getPostsByAuthor(
     @Args('authorId', { type: () => ID }) authorId: string,
@@ -117,7 +117,7 @@ export class PostsResolver {
     return this.postsService.findPostsByAuthors([authorId], paginationArgs);
   }
 
-  @UseGuards(FirebaseAuthGuard)
+  @UseGuards(CombinedAuthGuard)
   @Query(() => [Post], { name: 'getPostsByGroup' })
   async getPostsByGroup(
     @Args('groupId', { type: () => ID }) groupId: string,
@@ -127,7 +127,7 @@ export class PostsResolver {
   }
 
   // TODO: Ajouter les resolvers pour les champs `author`
-  @UseGuards(FirebaseAuthGuard)
+  @UseGuards(CombinedAuthGuard)
   @Mutation(() => Post, { name: 'updatePost' })
   async updatePost(
     @Args('postId', { type: () => ID }) postId: string,
