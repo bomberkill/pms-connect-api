@@ -16,29 +16,6 @@ export enum GroupMemberRole {
   MEMBER = 'MEMBER',
 }
 
-// --- Subdocuments ---
-
-@Schema({ _id: false, timestamps: { createdAt: 'joinedAt', updatedAt: false } })
-export class GroupMember {
-  @Prop({
-    type: SchemaTypes.ObjectId,
-    ref: 'User',
-    required: true,
-    index: true,
-  })
-  user: User;
-
-  @Prop({
-    type: String,
-    enum: Object.values(GroupMemberRole),
-    required: true,
-  })
-  role: GroupMemberRole;
-
-  joinedAt: Date;
-}
-export const GroupMemberSchema = SchemaFactory.createForClass(GroupMember);
-
 // --- Main Schema ---
 
 @Schema({ timestamps: true })
@@ -67,9 +44,6 @@ export class Group {
     default: GroupPrivacy.PUBLIC,
   })
   privacy: GroupPrivacy;
-
-  @Prop({ type: [GroupMemberSchema], default: [] })
-  members: GroupMember[];
 
   @Prop({ type: String })
   coverImageUrl?: string;

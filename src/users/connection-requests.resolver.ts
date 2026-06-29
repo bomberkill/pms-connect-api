@@ -9,6 +9,7 @@ import {
 import { UseGuards, Inject } from '@nestjs/common';
 import { PubSub } from 'graphql-subscriptions';
 import { FirebaseAuthGuard } from '../auth/guards/firebase-auth.guard';
+import { AdminAuthGuard } from '../admin-auth/guards/admin-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { UserDocument } from './schemas/users.schema';
 import { User } from './models/users.model';
@@ -20,6 +21,7 @@ import {
 import { ConnectionRequestsService } from './connection-requests.service';
 import { PUB_SUB } from '../pubsub/pubsub.module';
 import { ConnectionRequestForSubscriptionGQL } from './models/connection-update-subscription.model';
+import { GetConnectionRequestsArgs } from './dto/get-connection-requests.args';
 
 @Resolver(() => ConnectionRequestGQL)
 export class ConnectionRequestsResolver {
@@ -90,6 +92,14 @@ export class ConnectionRequestsResolver {
     @Args('userId', { type: () => ID }) userId: string,
   ): Promise<UserDocument[]> {
     return this.connectionRequestsService.getConnections(userId);
+  }
+
+  @UseGuards(AdminAuthGuard)
+  @Query(() => [ConnectionRequestGQL], { name: 'adminGetConnectionRequests' })
+  async adminGetConnectionRequests(
+    @Args() args: GetConnectionRequestsArgs,
+  ): Promise<ConnectionRequestDocument[]> {
+    return this.connectionRequestsService.adminFindAll(args);
   }
 
   @Subscription(() => ConnectionRequestForSubscriptionGQL, {

@@ -25,6 +25,7 @@ import { NotificationType } from '../notifications/schemas/notification.schema';
 import { GroupsService } from './groups.service';
 import { GetGroupJoinRequestsArgs } from './dto/get-join-requests.args';
 import { PUB_SUB } from '../pubsub/pubsub.module';
+import { GroupMembershipService } from './group-membership.service';
 
 @Injectable()
 export class JoinGroupRequestsService {
@@ -35,6 +36,7 @@ export class JoinGroupRequestsService {
     private readonly notificationsService: NotificationsService,
     @Inject(PUB_SUB) private readonly pubSub: PubSub,
     private readonly groupsService: GroupsService,
+    private readonly membershipService: GroupMembershipService,
   ) {}
 
   async sendJoinRequest(
@@ -47,9 +49,7 @@ export class JoinGroupRequestsService {
       throw new NotFoundException(`Group with ID "${groupId}" not found.`);
     }
 
-    const isMember = group.members.some(
-      (m) => m.user.toString() === requesterId,
-    );
+    const isMember = await this.membershipService.isMember(groupId, requesterId);
     if (isMember) {
       throw new ConflictException('You are already a member of this group.');
     }
@@ -88,9 +88,12 @@ export class JoinGroupRequestsService {
     const savedRequest = await newRequest.save();
 
     // Notify all group admins and moderators
-    const adminAndModeratorIds = group.members
-      .filter((m) => m.role !== GroupMemberRole.MEMBER)
-      .map((m) => m.user.toString());
+    const adminAndModeratorIds = (
+      await this.membershipService.getMembersByRoles(groupId, [
+        GroupMemberRole.ADMIN,
+        GroupMemberRole.MODERATOR,
+      ])
+    ).map((membership) => membership.user._id.toString());
 
     if (adminAndModeratorIds.length > 0) {
       this.notificationsService.create({
@@ -128,8 +131,9 @@ export class JoinGroupRequestsService {
     }
 
     // 1. Check if the current user is an admin or moderator
-    const currentUserMember = group.members.find(
-      (m) => m.user.toString() === currentUserId,
+    const currentUserMember = await this.membershipService.getMembership(
+      groupId,
+      currentUserId,
     );
     if (
       !currentUserMember ||
@@ -141,8 +145,9 @@ export class JoinGroupRequestsService {
     }
 
     // 2. Check if the user to invite is already a member
-    const isAlreadyMember = group.members.some(
-      (m) => m.user.toString() === userIdToInvite,
+    const isAlreadyMember = await this.membershipService.isMember(
+      groupId,
+      userIdToInvite,
     );
     if (isAlreadyMember) {
       throw new ConflictException(
@@ -208,8 +213,9 @@ export class JoinGroupRequestsService {
       throw new NotFoundException('Group not found.');
     }
 
-    const adminMember = group.members.find(
-      (m) => m.user.toString() === adminId,
+    const adminMember = await this.membershipService.getMembership(
+      group._id.toString(),
+      adminId,
     );
 
     if (!adminMember || adminMember.role === GroupMemberRole.MEMBER) {
@@ -246,33 +252,24 @@ export class JoinGroupRequestsService {
     // this.pubSub.publish(...)
   }
 
-  async declineOrCancelJoinRequest(
-    requestId: string,
-    currentUserId: string,
-  ): Promise<void> {
+  async rejectJoinRequest(requestId: string, adminId: string): Promise<void> {
     const request = await this.joinRequestModel.findById(requestId);
-
     if (!request) {
       throw new NotFoundException('Join request not found.');
     }
 
-    const group = request.group;
-    const isRequester = request.user.toString() === currentUserId;
-
-    // We need to fetch the group to check member roles
-    const groupDoc = await this.groupModel.findById(group.toString());
-    if (!groupDoc) {
-      throw new NotFoundException('Group not found for this request.');
+    const group = await this.groupModel.findById(request.group.toString());
+    if (!group) {
+      throw new NotFoundException('Group not found.');
     }
 
-    const adminMember = groupDoc.members.find(
-      (m) => m.user.toString() === currentUserId,
+    const adminMember = await this.membershipService.getMembership(
+      group._id.toString(),
+      adminId,
     );
-    const isAdmin = adminMember && adminMember.role !== GroupMemberRole.MEMBER;
-
-    if (!isRequester && !isAdmin) {
+    if (!adminMember || adminMember.role === GroupMemberRole.MEMBER) {
       throw new ForbiddenException(
-        'You are not authorized to modify this request.',
+        'You must be an admin or moderator to reject requests.',
       );
     }
 
@@ -282,16 +279,130 @@ export class JoinGroupRequestsService {
       );
     }
 
-    if (isRequester) {
-      request.status = GroupJoinRequestStatus.CANCELLED;
-    } else if (isAdmin) {
-      request.status = GroupJoinRequestStatus.REJECTED;
+    request.status = GroupJoinRequestStatus.REJECTED;
+    await request.save();
+  }
+
+  async adminApproveJoinRequest(requestId: string): Promise<void> {
+    const request = await this.joinRequestModel.findById(requestId);
+    if (!request) {
+      throw new NotFoundException('Join request not found.');
     }
 
-    await request.save();
+    if (request.status !== GroupJoinRequestStatus.PENDING) {
+      throw new ConflictException(
+        `This request is already ${request.status.toLowerCase()}.`,
+      );
+    }
 
-    // TODO: Publish PubSub event
-    // this.pubSub.publish(...)
+    const group = await this.groupModel.findById(request.group.toString());
+    if (!group) {
+      throw new NotFoundException('Group not found.');
+    }
+
+    await this.groupsService.addMember(
+      group._id.toString(),
+      request.user.toString(),
+    );
+
+    request.status = GroupJoinRequestStatus.APPROVED;
+    await request.save();
+  }
+
+  async adminRejectJoinRequest(requestId: string): Promise<void> {
+    const request = await this.joinRequestModel.findById(requestId);
+    if (!request) {
+      throw new NotFoundException('Join request not found.');
+    }
+
+    if (request.status !== GroupJoinRequestStatus.PENDING) {
+      throw new ConflictException(
+        `This request is already ${request.status.toLowerCase()}.`,
+      );
+    }
+
+    const group = await this.groupModel.findById(request.group.toString());
+    if (!group) {
+      throw new NotFoundException('Group not found.');
+    }
+
+    request.status = GroupJoinRequestStatus.REJECTED;
+    await request.save();
+  }
+
+  async cancelJoinRequest(requestId: string, requesterId: string): Promise<void> {
+    const request = await this.joinRequestModel.findById(requestId);
+    if (!request) {
+      throw new NotFoundException('Join request not found.');
+    }
+
+    if (request.user.toString() !== requesterId) {
+      throw new ForbiddenException('You can only cancel your own requests.');
+    }
+
+    if (request.status !== GroupJoinRequestStatus.PENDING) {
+      throw new ConflictException(
+        `This request is already ${request.status.toLowerCase()}.`,
+      );
+    }
+
+    request.status = GroupJoinRequestStatus.CANCELLED;
+    await request.save();
+  }
+
+  async acceptGroupInvitation(
+    requestId: string,
+    currentUserId: string,
+  ): Promise<void> {
+    const invitation = await this.joinRequestModel.findById(requestId);
+    if (!invitation) {
+      throw new NotFoundException('Group invitation not found.');
+    }
+
+    if (invitation.user.toString() !== currentUserId) {
+      throw new ForbiddenException(
+        'You can only accept your own invitations.',
+      );
+    }
+
+    if (invitation.status !== GroupJoinRequestStatus.INVITED) {
+      throw new ConflictException(
+        `This invitation is already ${invitation.status.toLowerCase()}.`,
+      );
+    }
+
+    await this.groupsService.addMember(
+      invitation.group.toString(),
+      currentUserId,
+    );
+
+    invitation.status = GroupJoinRequestStatus.APPROVED;
+    await invitation.save();
+  }
+
+  async declineGroupInvitation(
+    requestId: string,
+    currentUserId: string,
+  ): Promise<void> {
+    const invitation = await this.joinRequestModel.findById(requestId);
+    if (!invitation) {
+      throw new NotFoundException('Group invitation not found.');
+    }
+
+    if (invitation.user.toString() !== currentUserId) {
+      throw new ForbiddenException(
+        'You can only decline your own invitations.',
+      );
+    }
+
+    if (invitation.status !== GroupJoinRequestStatus.INVITED) {
+      throw new ConflictException(
+        `This invitation is already ${invitation.status.toLowerCase()}.`,
+      );
+    }
+
+    invitation.status = GroupJoinRequestStatus.REJECTED;
+    await invitation.save();
   }
 
   /**
@@ -307,8 +418,9 @@ export class JoinGroupRequestsService {
     if (!group) {
       throw new NotFoundException('Group not found.');
     }
-    const member = group.members.find(
-      (m) => m.user.toString() === currentUserId,
+    const member = await this.membershipService.getMembership(
+      groupId,
+      currentUserId,
     );
     if (!member || member.role === 'MEMBER') {
       throw new ForbiddenException(
@@ -322,7 +434,7 @@ export class JoinGroupRequestsService {
       .populate({
         path: 'group',
         populate: {
-          path: 'creator members.user',
+          path: 'creator',
         },
       })
       .sort({ createdAt: -1 })
@@ -337,6 +449,38 @@ export class JoinGroupRequestsService {
   ): Promise<GroupJoinRequestDocument[]> {
     const { skip, limit, groupId, status } = args;
     const filters: FilterQuery<GroupJoinRequestDocument> = {};
+
+    if (groupId) {
+      filters.group = groupId;
+    }
+
+    if (status) {
+      filters.status = status;
+    }
+
+    return this.joinRequestModel
+      .find(filters)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .populate('user')
+      .populate('group')
+      .exec();
+  }
+
+  async findRequestsForUser(
+    userId: string,
+    args: {
+      skip: number;
+      limit: number;
+      groupId?: string;
+      status?: GroupJoinRequestStatus;
+    },
+  ): Promise<GroupJoinRequestDocument[]> {
+    const { skip, limit, groupId, status } = args;
+    const filters: FilterQuery<GroupJoinRequestDocument> = {
+      user: userId,
+    };
 
     if (groupId) {
       filters.group = groupId;

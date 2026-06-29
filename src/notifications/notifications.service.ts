@@ -1,6 +1,6 @@
 import { Injectable, Inject } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { FilterQuery, Model } from 'mongoose';
 import { Messaging } from 'firebase-admin/messaging';
 import { PubSub } from 'graphql-subscriptions';
 import { PUB_SUB } from '../pubsub/pubsub.module';
@@ -12,6 +12,7 @@ import {
 import { PaginationArgs } from '../posts/dto/pagination.args';
 import { User, UserDocument } from '../users/schemas/users.schema';
 import { CreateNotificationDto } from './dto/create-notification.dto';
+import { GetAdminNotificationsArgs } from './dto/get-admin-notifications.args';
 
 @Injectable()
 export class NotificationsService {
@@ -79,6 +80,46 @@ export class NotificationsService {
 
   async countUnread(userId: string): Promise<number> {
     return this.notificationModel.countDocuments({ recipient: userId, read: false }).exec();
+  }
+
+  async adminFindAll(
+    args: GetAdminNotificationsArgs,
+  ): Promise<NotificationDocument[]> {
+    const { skip, limit, recipientId, senderId, type, read } = args;
+    const filters: FilterQuery<NotificationDocument> = {};
+
+    if (recipientId) {
+      filters.recipient = recipientId;
+    }
+
+    if (senderId) {
+      filters.sender = senderId;
+    }
+
+    if (type) {
+      filters.type = type;
+    }
+
+    if (typeof read === 'boolean') {
+      filters.read = read;
+    }
+
+    return this.notificationModel
+      .find(filters)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .populate('sender')
+      .populate('recipient')
+      .exec();
+  }
+
+  async adminCountUnread(recipientId?: string): Promise<number> {
+    const filters: FilterQuery<NotificationDocument> = { read: false };
+    if (recipientId) {
+      filters.recipient = recipientId;
+    }
+    return this.notificationModel.countDocuments(filters).exec();
   }
 
   // We accept a partial document here because the object from insertMany is not fully populated.

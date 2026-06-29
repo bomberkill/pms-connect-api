@@ -14,6 +14,7 @@ import { Post } from './models/posts.model';
 import { CreatePostInput } from './dto/create-post.input';
 import { UpdatePostInput } from './dto/update-post.input';
 import { CombinedAuthGuard } from '../auth/guards/combined-auth.guard';
+import { AdminAuthGuard } from '../admin-auth/guards/admin-auth.guard';
 import { PaginationArgs } from './dto/pagination.args';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { UserDocument } from '../users/schemas/users.schema';
@@ -124,6 +125,30 @@ export class PostsResolver {
     @Args() paginationArgs: PaginationArgs,
   ): Promise<PostDocument[]> {
     return this.postsService.findPostsByGroup(groupId, paginationArgs);
+  }
+
+  @UseGuards(AdminAuthGuard)
+  @Query(() => [Post], { name: 'adminGetPosts' })
+  async adminGetPosts(
+    @Args() paginationArgs: PaginationArgs,
+  ): Promise<PostDocument[]> {
+    return this.postsService.findAllPosts(paginationArgs);
+  }
+
+  @UseGuards(AdminAuthGuard)
+  @Query(() => Post, { name: 'adminGetPostById', nullable: true })
+  async adminGetPostById(
+    @Args('id', { type: () => ID }) id: string,
+  ): Promise<PostDocument> {
+    return this.postsService.findOne(id);
+  }
+
+  @UseGuards(AdminAuthGuard)
+  @Mutation(() => Boolean, { name: 'adminRemovePost' })
+  async adminRemovePost(
+    @Args('id', { type: () => ID }) id: string,
+  ): Promise<boolean> {
+    return this.postsService.removeAsAdmin(id);
   }
 
   // TODO: Ajouter les resolvers pour les champs `author`

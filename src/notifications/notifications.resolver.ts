@@ -10,6 +10,7 @@ import {
 } from '@nestjs/graphql';
 import { UseGuards, Inject } from '@nestjs/common';
 import { CombinedAuthGuard } from '../auth/guards/combined-auth.guard';
+import { AdminAuthGuard } from '../admin-auth/guards/admin-auth.guard';
 import { NotificationsService } from './notifications.service';
 import { Notification } from './models/notification.model';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
@@ -21,6 +22,8 @@ import {
 } from './schemas/notification.schema';
 import { PubSub } from 'graphql-subscriptions';
 import { PUB_SUB } from '../pubsub/pubsub.module';
+import { User } from '../users/models/users.model';
+import { GetAdminNotificationsArgs } from './dto/get-admin-notifications.args';
 
 @Resolver(() => Notification)
 export class NotificationsResolver {
@@ -58,6 +61,23 @@ export class NotificationsResolver {
   @Query(() => Number, { name: 'unreadNotificationsCount' })
   async unreadNotificationsCount(@CurrentUser() user: UserDocument): Promise<number> {
     return this.notificationsService.countUnread(user._id.toString());
+  }
+
+  @UseGuards(AdminAuthGuard)
+  @Query(() => [Notification], { name: 'adminGetNotifications' })
+  async adminGetNotifications(
+    @Args() args: GetAdminNotificationsArgs,
+  ): Promise<Notification[]> {
+    const notifications = await this.notificationsService.adminFindAll(args);
+    return notifications as unknown as Notification[];
+  }
+
+  @UseGuards(AdminAuthGuard)
+  @Query(() => Number, { name: 'adminUnreadNotificationsCount' })
+  async adminUnreadNotificationsCount(
+    @Args('recipientId', { type: () => ID, nullable: true }) recipientId?: string,
+  ): Promise<number> {
+    return this.notificationsService.adminCountUnread(recipientId);
   }
 
   // --- Subscription ---
@@ -102,5 +122,15 @@ export class NotificationsResolver {
       default:
         return 'You have a new notification.';
     }
+  }
+
+  @ResolveField('sender', () => User)
+  sender(@Parent() notification: NotificationDocument): UserDocument {
+    return notification.sender as UserDocument;
+  }
+
+  @ResolveField('recipient', () => User)
+  recipient(@Parent() notification: NotificationDocument): UserDocument {
+    return notification.recipient as UserDocument;
   }
 }

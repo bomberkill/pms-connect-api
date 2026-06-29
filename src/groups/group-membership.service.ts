@@ -59,6 +59,10 @@ export class GroupMembershipService {
     return true;
   }
 
+  async removeAllMembers(groupId: string): Promise<void> {
+    await this.membershipModel.deleteMany({ group: groupId });
+  }
+
   /**
    * Get all members of a group with pagination
    */
@@ -84,6 +88,17 @@ export class GroupMembershipService {
   ): Promise<GroupMembershipDocument[]> {
     return this.membershipModel
       .find({ group: groupId, role })
+      .sort({ joinedAt: 1 })
+      .populate('user')
+      .exec();
+  }
+
+  async getMembersByRoles(
+    groupId: string,
+    roles: GroupMemberRole[],
+  ): Promise<GroupMembershipDocument[]> {
+    return this.membershipModel
+      .find({ group: groupId, role: { $in: roles } })
       .sort({ joinedAt: 1 })
       .populate('user')
       .exec();
@@ -117,6 +132,17 @@ export class GroupMembershipService {
     return this.membershipModel
       .findOne({ group: groupId, user: userId })
       .populate('user')
+      .exec();
+  }
+
+  async getMembershipWithGroup(
+    groupId: string,
+    userId: string,
+  ): Promise<GroupMembershipDocument | null> {
+    return this.membershipModel
+      .findOne({ group: groupId, user: userId })
+      .populate('user')
+      .populate('group')
       .exec();
   }
 

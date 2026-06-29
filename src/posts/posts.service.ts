@@ -89,31 +89,7 @@ export class PostsService {
       throw new ForbiddenException('You can only delete your own posts.');
     }
 
-    // Soft-delete the post
-    await this.postModel.findByIdAndUpdate(id, {
-      $set: {
-        status: PostStatus.ARCHIVED,
-        content: '[This post has been deleted]',
-      },
-    });
-
-    // Find all top-level comments for this post
-    const topLevelComments = await this.commentsService.findCommentsByPost(id, {
-      skip: 0,
-      limit: Number.MAX_SAFE_INTEGER,
-    });
-
-    // Trigger cascading soft-delete for each top-level comment
-    for (const comment of topLevelComments) {
-      // We can call this without checking ownership again, as it's an internal, trusted action.
-      // The `removeComment` method will start the recursive deletion.
-      await this.commentsService.removeComment(
-        comment._id.toString(),
-        comment.author.toString(),
-      );
-    }
-
-    return true;
+    return this.softDeletePost(id);
   }
 
   /**
@@ -222,5 +198,34 @@ export class PostsService {
       .skip(skip)
       .limit(limit)
       .populate('author');
+  }
+
+  async removeAsAdmin(id: string): Promise<boolean> {
+    const post = await this.postModel.findById(id);
+    if (!post) {
+      throw new NotFoundException(`Post with ID "${id}" not found.`);
+    }
+
+    return this.softDeletePost(id);
+  }
+
+  private async softDeletePost(id: string): Promise<boolean> {
+    await this.postModel.findByIdAndUpdate(id, {
+      $set: {
+        status: PostStatus.ARCHIVED,
+        content: '[This post has been deleted]',
+      },
+    });
+
+    const topLevelComments = await this.commentsService.findCommentsByPost(id, {
+      skip: 0,
+      limit: Number.MAX_SAFE_INTEGER,
+    });
+
+    for (const comment of topLevelComments) {
+      await this.commentsService.removeCommentAsAdmin(comment._id.toString());
+    }
+
+    return true;
   }
 }

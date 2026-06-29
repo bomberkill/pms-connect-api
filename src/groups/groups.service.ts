@@ -9,16 +9,23 @@ import { Model, FilterQuery } from 'mongoose';
 import slugify from 'slugify';
 import { randomBytes } from 'crypto';
 import { Group, GroupDocument, GroupMemberRole } from './schemas/group.schema';
+import {
+  GroupJoinRequest,
+  GroupJoinRequestDocument,
+} from './schemas/group-join-request.schema';
 import { CreateGroupInput } from './dto/create-group.input';
 import { GetGroupsArgs } from './dto/get-groups.args';
 import { UpdateGroupInput } from './dto/update-group.input';
 import { UserDocument } from '../users/schemas/users.schema';
 import { GroupMembershipService } from './group-membership.service';
+import { GroupMembershipDocument } from './schemas/group-membership.schema';
 
 @Injectable()
 export class GroupsService {
   constructor(
     @InjectModel(Group.name) private groupModel: Model<GroupDocument>,
+    @InjectModel(GroupJoinRequest.name)
+    private joinRequestModel: Model<GroupJoinRequestDocument>,
     private readonly membershipService: GroupMembershipService,
   ) {}
 
@@ -107,8 +114,9 @@ export class GroupsService {
     }
 
     // 2. Check if the current user is an admin of the group
-    const member = group.members.find(
-      (m) => m.user.toString() === currentUserId,
+    const member = await this.membershipService.getMembership(
+      groupId,
+      currentUserId,
     );
 
     if (!member || member.role !== GroupMemberRole.ADMIN) {
@@ -121,6 +129,36 @@ export class GroupsService {
       ...updateGroupInput,
     };
     // If name is changing, regenerate the slug
+    if (updateGroupInput.name) {
+      updatePayload.slug = await this._generateUniqueSlug(
+        updateGroupInput.name,
+      );
+    }
+
+    const updatedGroup = await this.groupModel
+      .findByIdAndUpdate(groupId, { $set: updatePayload }, { new: true })
+      .exec();
+
+    if (!updatedGroup) {
+      throw new NotFoundException(`Group with ID "${groupId}" not found.`);
+    }
+
+    return updatedGroup;
+  }
+
+  async adminUpdate(
+    groupId: string,
+    updateGroupInput: UpdateGroupInput,
+  ): Promise<GroupDocument> {
+    const group = await this.groupModel.findById(groupId);
+    if (!group) {
+      throw new NotFoundException(`Group with ID "${groupId}" not found.`);
+    }
+
+    const updatePayload: Partial<UpdateGroupInput> & { slug?: string } = {
+      ...updateGroupInput,
+    };
+
     if (updateGroupInput.name) {
       updatePayload.slug = await this._generateUniqueSlug(
         updateGroupInput.name,
@@ -247,6 +285,135 @@ export class GroupsService {
     await this.membershipService.removeMember(groupId, finalUserIdToRemove);
 
     return group;
+  }
+
+  async updateMemberRole(
+    groupId: string,
+    currentUserId: string,
+    userIdToUpdate: string,
+    newRole: GroupMemberRole,
+  ): Promise<GroupMembershipDocument> {
+    const group = await this.groupModel.findById(groupId);
+    if (!group) {
+      throw new NotFoundException(`Group with ID "${groupId}" not found.`);
+    }
+
+    const currentUserMembership = await this.membershipService.getMembership(
+      groupId,
+      currentUserId,
+    );
+    if (!currentUserMembership || currentUserMembership.role !== GroupMemberRole.ADMIN) {
+      throw new ForbiddenException(
+        'You must be an admin to update a member role.',
+      );
+    }
+
+    if (group.creator.toString() === userIdToUpdate) {
+      throw new BadRequestException(
+        'The group creator role cannot be changed.',
+      );
+    }
+
+    const targetMembership = await this.membershipService.getMembership(
+      groupId,
+      userIdToUpdate,
+    );
+    if (!targetMembership) {
+      throw new NotFoundException('User is not a member of this group.');
+    }
+
+    return this.membershipService.updateMemberRole(
+      groupId,
+      userIdToUpdate,
+      newRole,
+    );
+  }
+
+  async adminRemoveMember(
+    groupId: string,
+    userIdToRemove: string,
+  ): Promise<GroupDocument> {
+    const group = await this.groupModel.findById(groupId);
+    if (!group) {
+      throw new NotFoundException(`Group with ID "${groupId}" not found.`);
+    }
+
+    if (group.creator.toString() === userIdToRemove) {
+      throw new BadRequestException('The group creator cannot be removed.');
+    }
+
+    const membership = await this.membershipService.getMembership(
+      groupId,
+      userIdToRemove,
+    );
+    if (!membership) {
+      throw new NotFoundException('User is not a member of this group.');
+    }
+
+    await this.membershipService.removeMember(groupId, userIdToRemove);
+
+    return group;
+  }
+
+  async adminUpdateMemberRole(
+    groupId: string,
+    userIdToUpdate: string,
+    newRole: GroupMemberRole,
+  ): Promise<GroupMembershipDocument> {
+    const group = await this.groupModel.findById(groupId);
+    if (!group) {
+      throw new NotFoundException(`Group with ID "${groupId}" not found.`);
+    }
+
+    if (group.creator.toString() === userIdToUpdate) {
+      throw new BadRequestException(
+        'The group creator role cannot be changed.',
+      );
+    }
+
+    const membership = await this.membershipService.getMembership(
+      groupId,
+      userIdToUpdate,
+    );
+    if (!membership) {
+      throw new NotFoundException('User is not a member of this group.');
+    }
+
+    return this.membershipService.updateMemberRole(
+      groupId,
+      userIdToUpdate,
+      newRole,
+    );
+  }
+
+  async delete(groupId: string, currentUserId: string): Promise<boolean> {
+    const group = await this.groupModel.findById(groupId);
+    if (!group) {
+      throw new NotFoundException(`Group with ID "${groupId}" not found.`);
+    }
+
+    if (group.creator.toString() !== currentUserId) {
+      throw new ForbiddenException('Only the group creator can delete this group.');
+    }
+
+    await this.membershipService.removeAllMembers(groupId);
+    await this.joinRequestModel.deleteMany({ group: groupId });
+    await this.groupModel.deleteOne({ _id: groupId });
+
+    return true;
+  }
+
+  async adminDelete(groupId: string): Promise<boolean> {
+    const group = await this.groupModel.findById(groupId);
+    if (!group) {
+      throw new NotFoundException(`Group with ID "${groupId}" not found.`);
+    }
+
+    await this.membershipService.removeAllMembers(groupId);
+    await this.joinRequestModel.deleteMany({ group: groupId });
+    await this.groupModel.deleteOne({ _id: groupId });
+
+    return true;
   }
 
   /**

@@ -26,6 +26,7 @@ import { Post } from './models/posts.model';
 import { CreateCommentInput } from './dto/create-comment.input';
 import { CurrentUser } from 'src/auth/decorators/current-user.decorator';
 import { CombinedAuthGuard } from 'src/auth/guards/combined-auth.guard';
+import { AdminAuthGuard } from 'src/admin-auth/guards/admin-auth.guard';
 import { PaginationArgs } from './dto/pagination.args';
 import { PUB_SUB } from 'src/pubsub/pubsub.module';
 import { BookmarkLoader } from 'src/bookmarks/loaders/bookmarks.loader';
@@ -43,6 +44,15 @@ export class CommentsResolver {
   @UseGuards(CombinedAuthGuard)
   @Query(() => [Comment], { name: 'getCommentsByPost' })
   async getCommentsByPost(
+    @Args('postId', { type: () => ID }) postId: string,
+    @Args() paginationArgs: PaginationArgs,
+  ): Promise<CommentDocument[]> {
+    return this.commentsService.findCommentsByPost(postId, paginationArgs);
+  }
+
+  @UseGuards(AdminAuthGuard)
+  @Query(() => [Comment], { name: 'adminGetCommentsByPost' })
+  async adminGetCommentsByPost(
     @Args('postId', { type: () => ID }) postId: string,
     @Args() paginationArgs: PaginationArgs,
   ): Promise<CommentDocument[]> {
@@ -87,6 +97,14 @@ export class CommentsResolver {
     @CurrentUser() user: UserDocument,
   ): Promise<boolean> {
     return this.commentsService.removeComment(commentId, user._id.toString());
+  }
+
+  @UseGuards(AdminAuthGuard)
+  @Mutation(() => Boolean, { name: 'adminRemoveComment' })
+  async adminRemoveComment(
+    @Args('commentId', { type: () => ID }) commentId: string,
+  ): Promise<boolean> {
+    return this.commentsService.removeCommentAsAdmin(commentId);
   }
 
   // --- Subscription ---

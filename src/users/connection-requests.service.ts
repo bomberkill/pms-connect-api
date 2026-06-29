@@ -18,6 +18,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { NotificationType } from '../notifications/schemas/notification.schema';
 import { UsersService } from './users.service';
 import { PUB_SUB } from '../pubsub/pubsub.module';
+import { GetConnectionRequestsArgs } from './dto/get-connection-requests.args';
 
 @Injectable()
 export class ConnectionRequestsService {
@@ -252,5 +253,32 @@ export class ConnectionRequestsService {
 
     // Fetch all connected users
     return this.userModel.find({ _id: { $in: user.connections } }).exec();
+  }
+
+  async adminFindAll(
+    args: GetConnectionRequestsArgs,
+  ): Promise<ConnectionRequestDocument[]> {
+    const { skip, limit, requesterId, recipientId, status } = args;
+    const query: FilterQuery<ConnectionRequestDocument> = {};
+
+    if (requesterId) {
+      query.requester = requesterId;
+    }
+
+    if (recipientId) {
+      query.recipient = recipientId;
+    }
+
+    if (status) {
+      query.status = status;
+    }
+
+    return this.connectionRequestModel
+      .find(query)
+      .populate('requester recipient')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .exec();
   }
 }

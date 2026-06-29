@@ -27,12 +27,14 @@ import { CombinedAuthGuard } from '../auth/guards/combined-auth.guard';
 import { FollowsUpdate } from './models/follower-count-update.model';
 import { PUB_SUB } from '../pubsub/pubsub.module';
 import { GqlWsAuthGuard } from 'src/auth/guards/gql-ws-auth.guard';
+import { ConnectionRequestsService } from './connection-requests.service';
 
 @Resolver(() => User) // Specify User as the base type this resolver handles
 export class UsersResolver {
   constructor(
     private readonly usersService: UsersService,
     private readonly followsService: FollowsService,
+    private readonly connectionRequestsService: ConnectionRequestsService,
     @Inject(PUB_SUB) private readonly pubSub: PubSub,
   ) {}
 
@@ -190,9 +192,25 @@ export class UsersResolver {
     return this.usersService.getFollowers(userId);
   }
 
+  @UseGuards(AdminAuthGuard)
+  @Query(() => [User], { name: 'adminGetFollowers' })
+  async adminGetFollowers(
+    @Args('userId', { type: () => ID }) userId: string,
+  ): Promise<UserDocument[]> {
+    return this.usersService.getFollowers(userId);
+  }
+
   @UseGuards(FirebaseAuthGuard)
   @Query(() => [User], { name: 'getFollowing' })
   async getFollowing(
+    @Args('userId', { type: () => ID }) userId: string,
+  ): Promise<UserDocument[]> {
+    return this.usersService.getFollowing(userId);
+  }
+
+  @UseGuards(AdminAuthGuard)
+  @Query(() => [User], { name: 'adminGetFollowing' })
+  async adminGetFollowing(
     @Args('userId', { type: () => ID }) userId: string,
   ): Promise<UserDocument[]> {
     return this.usersService.getFollowing(userId);
@@ -225,6 +243,14 @@ export class UsersResolver {
       userIdB,
     );
     return true;
+  }
+
+  @UseGuards(AdminAuthGuard)
+  @Query(() => [User], { name: 'adminGetConnections' })
+  async adminGetConnections(
+    @Args('userId', { type: () => ID }) userId: string,
+  ): Promise<UserDocument[]> {
+    return this.connectionRequestsService.getConnections(userId);
   }
 
   @UseGuards(FirebaseAuthGuard)

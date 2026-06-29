@@ -115,6 +115,16 @@ export class CommentsService {
     return true;
   }
 
+  async removeCommentAsAdmin(commentId: string): Promise<boolean> {
+    const comment = await this.commentModel.findById(commentId);
+    if (!comment) {
+      throw new NotFoundException(`Comment with ID "${commentId}" not found.`);
+    }
+
+    await this.softDeleteCommentAndReplies(commentId);
+    return true;
+  }
+
   /**
    * Recursively soft-deletes a comment and all its replies.
    * @param commentId The ID of the comment to start deleting from.
