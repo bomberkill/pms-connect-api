@@ -46,7 +46,7 @@ export class UsersService {
 
   async create(
     createUserInput: CreateUserInput,
-    currentUserFirebaseUid: string, // Pass the firebaseUid from the authenticated user
+    currentUserAuthId: string, // Pass the authUserId from the authenticated user
   ): Promise<UserDocument> {
     // Ensure required fields for the specific userType are present
     let baseNameToSlugify: string;
@@ -91,7 +91,7 @@ export class UsersService {
     const existingUserByEmail = await this.userModel
       .findOne({
         email: createUserInput.email,
-        firebaseUid: { $ne: currentUserFirebaseUid },
+        authUserId: { $ne: currentUserAuthId },
       })
       .exec();
     if (existingUserByEmail) {
@@ -107,7 +107,7 @@ export class UsersService {
     // Cast to Model<UserDocument> as IndividualUser and LegalEntityUser are subtypes.
     const newUser = new (DiscriminatedModel as Model<UserDocument>)({
       ...createUserInput,
-      firebaseUid: currentUserFirebaseUid,
+      authUserId: currentUserAuthId,
       slug,
     });
     return newUser.save();
@@ -135,10 +135,9 @@ export class UsersService {
     return this.userModel.find({ _id: { $in: ids } }).exec();
   }
 
-  async findByFirebaseUid(firebaseUid: string): Promise<UserDocument | null> {
+  async findByAuthUserId(authUserId: string): Promise<UserDocument | null> {
     // Populate bookmarks for a full user object response
-    const result = await this.userModel.findOne({ firebaseUid }).exec();
-    // console.log('findByFirebaseUid service:', result)
+    const result = await this.userModel.findOne({ authUserId }).exec();
     return result;
   }
 
@@ -272,7 +271,7 @@ export class UsersService {
     const existingUser = await this.userModel
       .findOne({
         email: normalizedNewEmail,
-        firebaseUid: { $ne: currentUser.firebaseUid }, // On s'assure que ce n'est pas le même utilisateur
+        authUserId: { $ne: currentUser.authUserId }, // On s'assure que ce n'est pas le même utilisateur
       })
       .exec();
 
@@ -280,10 +279,10 @@ export class UsersService {
       throw new ConflictException('This email address is already in use.');
     }
 
-    // 2. Mettre à jour l'e-mail dans la base de données pour l'utilisateur identifié par son firebaseUid.
+    // 2. Mettre à jour l'e-mail dans la base de données pour l'utilisateur identifié par son authUserId.
     const updatedUser = await this.userModel
       .findOneAndUpdate(
-        { firebaseUid: currentUser.firebaseUid },
+        { authUserId: currentUser.authUserId },
         { $set: { email: normalizedNewEmail } },
         { new: true }, // Retourne le document mis à jour
       )
@@ -417,7 +416,7 @@ export class UsersService {
     return slug;
   }
 
-  // Add other methods here: findById, findByFirebaseUid, update, delete, etc.
+  // Add other methods here: findById, findByAuthUserId, update, delete, etc.
   // --- Follow / Unfollow Methods (using FollowsService) ---
 
   /**

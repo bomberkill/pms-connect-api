@@ -218,6 +218,15 @@ type FollowsUpdate {
   following: FollowingInfo!
 }
 
+input GetUploadUrlInput {
+  """MIME type of the file, e.g. "image/png"."""
+  contentType: String!
+
+  """Original file name, used to derive an extension."""
+  fileName: String!
+  purpose: UploadPurpose!
+}
+
 type Group {
   _id: ID!
   coverImageUrl: String
@@ -272,6 +281,9 @@ enum GroupPrivacy {
 """Represents an individual healthcare professional."""
 type IndividualUserObject implements User {
   accountStatus: AccountStatus!
+
+  """User's unique identifier from Better Auth"""
+  authUserId: ID!
   bio: String
 
   """List of blocked user IDs"""
@@ -283,9 +295,6 @@ type IndividualUserObject implements User {
   createdAt: DateTime!
   email: String!
   fcmTokens: [String!]!
-
-  """User's unique identifier from Firebase Authentication"""
-  firebaseUid: ID!
   firstName: String!
 
   """List of follower user IDs"""
@@ -327,6 +336,9 @@ type IndividualUserObject implements User {
 """Represents a legal entity in the healthcare sector."""
 type LegalEntityUserObject implements User {
   accountStatus: AccountStatus!
+
+  """User's unique identifier from Better Auth"""
+  authUserId: ID!
   bio: String
 
   """List of blocked user IDs"""
@@ -344,9 +356,6 @@ type LegalEntityUserObject implements User {
   """Type of legal entity (e.g., Hospital, Clinic, Association)"""
   entityType: EntityType!
   fcmTokens: [String!]!
-
-  """User's unique identifier from Firebase Authentication"""
-  firebaseUid: ID!
 
   """List of follower user IDs"""
   followers: [ID!]!
@@ -424,7 +433,13 @@ type Mutation {
   createUser(createUserInput: CreateUserInput!): User!
   declineOrCancelConnectionRequest(requestId: ID!): Boolean!
   declineOrCancelGroupJoinRequest(requestId: ID!): Boolean!
+
+  """Deletes a file the current user previously uploaded to R2."""
+  deleteUploadedFile(key: String!): Boolean!
   follow(userId: ID!): Boolean!
+
+  """Returns a presigned URL to upload a file directly to Cloudflare R2."""
+  getUploadUrl(input: GetUploadUrlInput!): UploadUrlResponse!
 
   """Allows an admin/moderator to invite or directly add a user to a group."""
   inviteOrAddUserToGroup(groupId: ID!, userIdToInvite: ID!): GroupJoinRequest
@@ -654,7 +669,7 @@ type Query {
     """Number of items to skip"""
     skip: Int! = 0
   ): [Post!]!
-  getUserByFirebaseUid(firebaseUid: ID!): User
+  getUserByAuthUserId(authUserId: ID!): User
   getUserById(id: ID!): User
   getUserBySlug(slug: String!): User
   me: User
@@ -746,9 +761,33 @@ input UpdateUserInput {
   websiteUrl: String
 }
 
+enum UploadPurpose {
+  ACCREDITATION_DOCUMENT
+  AVATAR
+  COVER_PICTURE
+  GROUP_PICTURE
+  POST_MEDIA
+}
+
+type UploadUrlResponse {
+  """Object key (path) the file was stored under in the bucket."""
+  key: String!
+
+  """Public URL the file will be reachable at once uploaded."""
+  publicUrl: String!
+
+  """
+  Presigned URL to PUT the file directly to Cloudflare R2. Expires shortly after issuance.
+  """
+  uploadUrl: String!
+}
+
 """Represents a user, can be an individual or a legal entity."""
 interface User {
   accountStatus: AccountStatus!
+
+  """User's unique identifier from Better Auth"""
+  authUserId: ID!
   bio: String
 
   """List of blocked user IDs"""
@@ -760,9 +799,6 @@ interface User {
   createdAt: DateTime!
   email: String!
   fcmTokens: [String!]!
-
-  """User's unique identifier from Firebase Authentication"""
-  firebaseUid: ID!
 
   """List of follower user IDs"""
   followers: [ID!]!

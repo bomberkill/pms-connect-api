@@ -8,8 +8,8 @@ import {
 } from '@nestjs/graphql';
 import { UseGuards, Inject } from '@nestjs/common';
 import { PubSub } from 'graphql-subscriptions';
-import { FirebaseAuthGuard } from '../auth/guards/firebase-auth.guard';
 import { AdminAuthGuard } from '../admin-auth/guards/admin-auth.guard';
+import { BetterAuthGuard } from '../auth/guards/better-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { UserDocument } from './schemas/users.schema';
 import { User } from './models/users.model';
@@ -30,7 +30,7 @@ export class ConnectionRequestsResolver {
     @Inject(PUB_SUB) private readonly pubSub: PubSub,
   ) {}
 
-  @UseGuards(FirebaseAuthGuard)
+  @UseGuards(BetterAuthGuard)
   @Mutation(() => Boolean, { name: 'sendConnectionRequest' })
   async sendConnectionRequest(
     @Args('recipientId', { type: () => ID }) recipientId: string,
@@ -43,7 +43,7 @@ export class ConnectionRequestsResolver {
     return true;
   }
 
-  @UseGuards(FirebaseAuthGuard)
+  @UseGuards(BetterAuthGuard)
   @Mutation(() => Boolean, { name: 'acceptConnectionRequest' })
   async acceptConnectionRequest(
     @Args('requestId', { type: () => ID }) requestId: string,
@@ -56,7 +56,7 @@ export class ConnectionRequestsResolver {
     return true;
   }
 
-  @UseGuards(FirebaseAuthGuard)
+  @UseGuards(BetterAuthGuard)
   @Mutation(() => Boolean, { name: 'declineOrCancelConnectionRequest' })
   async declineOrCancelConnectionRequest(
     @Args('requestId', { type: () => ID }) requestId: string,
@@ -69,7 +69,7 @@ export class ConnectionRequestsResolver {
     return true;
   }
 
-  @UseGuards(FirebaseAuthGuard)
+  @UseGuards(BetterAuthGuard)
   @Query(() => [ConnectionRequestGQL], { name: 'getMyConnectionRequests' })
   async getMyConnectionRequests(
     @CurrentUser() currentUser: UserDocument,
@@ -86,7 +86,7 @@ export class ConnectionRequestsResolver {
     );
   }
 
-  @UseGuards(FirebaseAuthGuard)
+  @UseGuards(BetterAuthGuard)
   @Query(() => [User], { name: 'getConnections' })
   async getConnections(
     @Args('userId', { type: () => ID }) userId: string,
@@ -137,7 +137,7 @@ export class ConnectionRequestsResolver {
       return payload.connectionRequestUpdated;
     },
   })
-  // @UseGuards(FirebaseAuthGuard) // Important to get user in context
+  // @UseGuards(BetterAuthGuard) // Important to get user in context
   connectionRequestUpdated() {
     // The user must be authenticated to subscribe, but we don't need to filter by a specific ID here.
     // The `filter` function above will handle the logic based on the authenticated user's ID.

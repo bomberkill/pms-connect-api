@@ -13,14 +13,14 @@ import { PaginationArgs } from 'src/posts/dto/pagination.args';
 import { UserDocument } from 'src/users/schemas/users.schema';
 import { CurrentUser } from 'src/auth/decorators/current-user.decorator';
 import { UseGuards } from '@nestjs/common';
-import { FirebaseAuthGuard } from 'src/auth/guards/firebase-auth.guard';
+import { BetterAuthGuard } from 'src/auth/guards/better-auth.guard';
 import { BookmarksService } from './bookmarks.service';
 
 @Resolver(() => Bookmark)
 export class BookmarksResolver {
   constructor(private readonly bookmarksService: BookmarksService) {}
 
-  @UseGuards(FirebaseAuthGuard)
+  @UseGuards(BetterAuthGuard)
   @Mutation(() => Boolean, { name: 'addBookmark' })
   async addBookmark(
     @CurrentUser() user: UserDocument,
@@ -35,7 +35,7 @@ export class BookmarksResolver {
     );
   }
 
-  @UseGuards(FirebaseAuthGuard)
+  @UseGuards(BetterAuthGuard)
   @Mutation(() => Boolean, { name: 'removeBookmark' })
   async removeBookmark(
     @CurrentUser() user: UserDocument,
@@ -44,7 +44,7 @@ export class BookmarksResolver {
     return this.bookmarksService.removeBookmark(user._id.toString(), itemId);
   }
 
-  @UseGuards(FirebaseAuthGuard)
+  @UseGuards(BetterAuthGuard)
   @Query(() => [Bookmark], { name: 'myBookmarks' })
   async getMyBookmarks(
     @CurrentUser() user: UserDocument,

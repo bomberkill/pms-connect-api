@@ -8,7 +8,7 @@ import { UserDocument } from '../../users/schemas/users.schema';
 //     return ctx.getContext().req.user;
 //   },
 // );
-export type CurrentUserType = UserDocument | { firebaseUid: string };
+export type CurrentUserType = UserDocument | { authUserId: string };
 
 export const CurrentUser = createParamDecorator(
   (data: unknown, context: ExecutionContext): CurrentUserType => {

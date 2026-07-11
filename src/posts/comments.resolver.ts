@@ -119,7 +119,7 @@ export class CommentsResolver {
     },
     resolve: (payload) => payload.commentAdded, // On extrait le commentaire du payload
   })
-  // @UseGuards(FirebaseAuthGuard) // Protège l'accès à la subscription
+  // @UseGuards(BetterAuthGuard) // Protège l'accès à la subscription
   commentAdded(
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     @Args('postId', { type: () => ID }) _postId: string,

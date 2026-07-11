@@ -13,7 +13,7 @@ import { User } from './models/users.model'; // Import the base GraphQL User mod
 import { CreateUserInput } from './dto/create-user.input';
 import { UseGuards, BadRequestException, Inject } from '@nestjs/common';
 import { PubSub } from 'graphql-subscriptions';
-import { FirebaseAuthGuard } from '../auth/guards/firebase-auth.guard';
+import { BetterAuthGuard } from '../auth/guards/better-auth.guard';
 import { AdminAuthGuard } from '../admin-auth/guards/admin-auth.guard';
 import {
   CurrentUser,
@@ -38,7 +38,7 @@ export class UsersResolver {
     @Inject(PUB_SUB) private readonly pubSub: PubSub,
   ) {}
 
-  @UseGuards(FirebaseAuthGuard) // Ensure this mutation is protected
+  @UseGuards(BetterAuthGuard) // Ensure this mutation is protected
   @Mutation(() => User, { name: 'createUser' }) // Returns a User, mutation name is 'createUser'
   async createUser(
     @Args('createUserInput') createUserInput: CreateUserInput,
@@ -46,19 +46,19 @@ export class UsersResolver {
   ): Promise<UserDocument> {
     // The service's create method returns a UserDocument.
     // GraphQL will automatically map the fields based on your @Field() decorators.
-    // Pass the firebaseUid from the authenticated user to the service
+    // Pass the authUserId from the authenticated user to the service
     if ('_id' in currentUser) {
       throw new BadRequestException('User already exists');
     }
-    return this.usersService.create(createUserInput, currentUser.firebaseUid);
+    return this.usersService.create(createUserInput, currentUser.authUserId);
   }
 
-  @UseGuards(FirebaseAuthGuard)
-  @Query(() => User, { name: 'getUserByFirebaseUid', nullable: true }) // Returns a User or null
-  async getUserByFirebaseUid(
-    @Args('firebaseUid', { type: () => ID }) firebaseUid: string,
+  @UseGuards(BetterAuthGuard)
+  @Query(() => User, { name: 'getUserByAuthUserId', nullable: true }) // Returns a User or null
+  async getUserByAuthUserId(
+    @Args('authUserId', { type: () => ID }) authUserId: string,
   ): Promise<UserDocument | null> {
-    const userDocument = await this.usersService.findByFirebaseUid(firebaseUid);
+    const userDocument = await this.usersService.findByAuthUserId(authUserId);
     if (!userDocument) {
       return null;
     }
@@ -92,7 +92,7 @@ export class UsersResolver {
 
   // This query might need admin privileges in a real application
   // This query might need admin privileges in a real application
-  // @UseGuards(FirebaseAuthGuard) // Basic protection, add role check for admin
+  // @UseGuards(BetterAuthGuard) // Basic protection, add role check for admin
   // @UseGuards(AdminAuthGuard)
   @UseGuards(CombinedAuthGuard) // Correct: Allow Admins to see list, potentially App Users too?
   // Ideally, getAllUsers is an Admin feature.
@@ -102,7 +102,7 @@ export class UsersResolver {
     return this.usersService.findAll(args);
   }
 
-  @UseGuards(FirebaseAuthGuard) // Correct: Only a user can update their OWN profile
+  @UseGuards(BetterAuthGuard) // Correct: Only a user can update their OWN profile
   @Mutation(() => User, { name: 'updateMyProfile' })
   async updateMyProfile(
     @Args('updateUserInput') updateUserInput: UpdateUserInput,
@@ -114,7 +114,7 @@ export class UsersResolver {
     );
   }
 
-  @UseGuards(FirebaseAuthGuard)
+  @UseGuards(BetterAuthGuard)
   @Mutation(() => User, {
     name: 'updateMyEmail',
     description: "Updates the authenticated user's email address.",
@@ -123,7 +123,7 @@ export class UsersResolver {
     @Args('newEmail', { type: () => String }) newEmail: string,
     @CurrentUser() currentUser: UserDocument,
   ): Promise<UserDocument> {
-    // The service handles updating both Firebase and the local database
+    // The service handles updating the email in the local database
     return this.usersService.updateEmail(currentUser, newEmail);
   }
 
@@ -137,7 +137,7 @@ export class UsersResolver {
   }
 
   // This mutation should ideally be restricted to admin users
-  // @UseGuards(FirebaseAuthGuard) // Basic protection, add role check for admin
+  // @UseGuards(BetterAuthGuard) // Basic protection, add role check for admin
   @UseGuards(AdminAuthGuard) // Correct: Account status change is Strict Admin
   @Mutation(() => User, { name: 'updateAccountStatus' })
   async updateAccountStatus(
@@ -149,11 +149,16 @@ export class UsersResolver {
     return this.usersService.updateAccountStatus(userId, accountStatus as any);
   }
 
-  @UseGuards(FirebaseAuthGuard)
+  @UseGuards(BetterAuthGuard)
   @Query(() => User, { name: 'me', nullable: true })
-  async getMe(@CurrentUser() user: UserDocument): Promise<UserDocument | null> {
-    // The `user` object is already the UserDocument fetched/created by your AuthService/FirebaseStrategy
-    if (!user) {
+  async getMe(
+    @CurrentUser() user: CurrentUserType,
+  ): Promise<UserDocument | null> {
+    // `user` is the UserDocument fetched by AuthService/BetterAuthStrategy, or
+    // a transient `{ authUserId }` shape when the Better Auth session is
+    // valid but no Mongo profile exists yet — the `User` GraphQL interface
+    // can't resolve a concrete type for that shape, so treat it as absent.
+    if (!user || !('_id' in user)) {
       return null;
     }
     return user;
@@ -161,7 +166,7 @@ export class UsersResolver {
 
   // --- Follow / Unfollow Mutations ---
 
-  @UseGuards(FirebaseAuthGuard)
+  @UseGuards(BetterAuthGuard)
   @Mutation(() => Boolean, { name: 'follow' })
   async follow(
     @Args('userId', { type: () => ID }) userIdToFollow: string,
@@ -171,7 +176,7 @@ export class UsersResolver {
     return true;
   }
 
-  @UseGuards(FirebaseAuthGuard)
+  @UseGuards(BetterAuthGuard)
   @Mutation(() => Boolean, { name: 'unfollow' })
   async unfollow(
     @Args('userId', { type: () => ID }) userIdToUnfollow: string,
@@ -184,7 +189,7 @@ export class UsersResolver {
     return true;
   }
 
-  @UseGuards(FirebaseAuthGuard)
+  @UseGuards(BetterAuthGuard)
   @Query(() => [User], { name: 'getFollowers' })
   async getFollowers(
     @Args('userId', { type: () => ID }) userId: string,
@@ -200,7 +205,7 @@ export class UsersResolver {
     return this.usersService.getFollowers(userId);
   }
 
-  @UseGuards(FirebaseAuthGuard)
+  @UseGuards(BetterAuthGuard)
   @Query(() => [User], { name: 'getFollowing' })
   async getFollowing(
     @Args('userId', { type: () => ID }) userId: string,
@@ -216,7 +221,7 @@ export class UsersResolver {
     return this.usersService.getFollowing(userId);
   }
 
-  @UseGuards(FirebaseAuthGuard)
+  @UseGuards(BetterAuthGuard)
   @Query(() => Int, { name: 'getFollowersCount' })
   async getFollowersCount(
     @Args('userId', { type: () => ID }) userId: string,
@@ -224,7 +229,7 @@ export class UsersResolver {
     return this.followsService.getFollowersCount(userId);
   }
 
-  @UseGuards(FirebaseAuthGuard)
+  @UseGuards(BetterAuthGuard)
   @Query(() => Int, { name: 'getFollowingCount' })
   async getFollowingCount(
     @Args('userId', { type: () => ID }) userId: string,
@@ -232,7 +237,7 @@ export class UsersResolver {
     return this.followsService.getFollowingCount(userId);
   }
 
-  @UseGuards(FirebaseAuthGuard)
+  @UseGuards(BetterAuthGuard)
   @Mutation(() => Boolean, { name: 'removeConnection' })
   async removeConnection(
     @Args('userIdB', { type: () => ID }) userIdB: string,
@@ -253,7 +258,7 @@ export class UsersResolver {
     return this.connectionRequestsService.getConnections(userId);
   }
 
-  @UseGuards(FirebaseAuthGuard)
+  @UseGuards(BetterAuthGuard)
   @Mutation(() => Boolean, { name: 'registerFcmToken' })
   async registerFcmToken(
     @Args('token', { type: () => String }) token: string,
@@ -266,7 +271,7 @@ export class UsersResolver {
     );
   }
 
-  @UseGuards(FirebaseAuthGuard)
+  @UseGuards(BetterAuthGuard)
   @Mutation(() => Boolean, { name: 'unregisterFcmToken' })
   async unregisterFcmToken(
     @Args('token', { type: () => String }) token: string,
@@ -310,7 +315,7 @@ export class UsersResolver {
       return payload?.followsUpdated;
     },
   })
-  // @UseGuards(FirebaseAuthGuard) // Optional: Protect who can subscribe
+  // @UseGuards(BetterAuthGuard) // Optional: Protect who can subscribe
   followsUpdated(
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     @Args('userId', { type: () => ID }) _userId: string,

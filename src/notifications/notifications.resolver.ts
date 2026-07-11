@@ -91,7 +91,7 @@ export class NotificationsResolver {
     },
     resolve: (payload) => payload.notificationAdded,
   })
-  // @UseGuards(FirebaseAuthGuard)
+  // @UseGuards(BetterAuthGuard)
   notificationAdded() {
     return this.pubSub.asyncIterableIterator('NOTIFICATION_ADDED');
   }

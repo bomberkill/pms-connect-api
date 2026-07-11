@@ -158,9 +158,9 @@ export abstract class User {
   id: string;
 
   @Field(() => ID, {
-    description: "User's unique identifier from Firebase Authentication",
+    description: "User's unique identifier from Better Auth",
   })
-  firebaseUid: string;
+  authUserId: string;
 
   @Field()
   email: string;

@@ -2,7 +2,7 @@ import { Resolver, Mutation, Args, ID, Subscription } from '@nestjs/graphql';
 import { UseGuards, Inject } from '@nestjs/common';
 import { PubSub } from 'graphql-subscriptions';
 import { LikesService } from './likes.service';
-import { FirebaseAuthGuard } from '../auth/guards/firebase-auth.guard';
+import { BetterAuthGuard } from '../auth/guards/better-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { UserDocument } from '../users/schemas/users.schema';
 import { LikesUpdate } from './models/likes-update.model';
@@ -15,7 +15,7 @@ export class LikesResolver {
     @Inject(PUB_SUB) private readonly pubSub: PubSub,
   ) {}
 
-  @UseGuards(FirebaseAuthGuard)
+  @UseGuards(BetterAuthGuard)
   @Mutation(() => Boolean, { name: 'likePost' })
   async likePost(
     @Args('postId', { type: () => ID }) postId: string,
@@ -24,7 +24,7 @@ export class LikesResolver {
     return this.likesService.likeItem(postId, 'Post', user._id.toString());
   }
 
-  @UseGuards(FirebaseAuthGuard)
+  @UseGuards(BetterAuthGuard)
   @Mutation(() => Boolean, { name: 'unlikePost' })
   async unlikePost(
     @Args('postId', { type: () => ID }) postId: string,
@@ -33,7 +33,7 @@ export class LikesResolver {
     return this.likesService.unlikeItem(postId, 'Post', user._id.toString());
   }
 
-  @UseGuards(FirebaseAuthGuard)
+  @UseGuards(BetterAuthGuard)
   @Mutation(() => Boolean, { name: 'likeComment' })
   async likeComment(
     @Args('commentId', { type: () => ID }) commentId: string,
@@ -46,7 +46,7 @@ export class LikesResolver {
     );
   }
 
-  @UseGuards(FirebaseAuthGuard)
+  @UseGuards(BetterAuthGuard)
   @Mutation(() => Boolean, { name: 'unlikeComment' })
   async unlikeComment(
     @Args('commentId', { type: () => ID }) commentId: string,
@@ -66,7 +66,7 @@ export class LikesResolver {
       payload.likesUpdated.likeableType === variables.likeableType,
     resolve: (payload) => payload.likesUpdated,
   })
-  // @UseGuards(FirebaseAuthGuard)
+  // @UseGuards(BetterAuthGuard)
   likesUpdated(
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     @Args('likeableId', { type: () => ID }) _likeableId: string,

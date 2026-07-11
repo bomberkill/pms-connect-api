@@ -1,8 +1,8 @@
 import { Resolver, Mutation, Args, ID, Query } from '@nestjs/graphql';
 import { UseGuards, Inject } from '@nestjs/common';
 import { PubSub } from 'graphql-subscriptions';
-import { FirebaseAuthGuard } from '../auth/guards/firebase-auth.guard';
 import { AdminAuthGuard } from '../admin-auth/guards/admin-auth.guard';
+import { BetterAuthGuard } from '../auth/guards/better-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { UserDocument } from '../users/schemas/users.schema';
 import { GroupJoinRequestGQL } from './models/group-join-request.model';
@@ -23,7 +23,7 @@ export class JoinGroupRequestsResolver {
     @Inject(PUB_SUB) private readonly pubSub: PubSub,
   ) {}
 
-  @UseGuards(FirebaseAuthGuard)
+  @UseGuards(BetterAuthGuard)
   @Mutation(() => Boolean, {
     name: 'requestToJoinGroup',
     description:
@@ -40,7 +40,7 @@ export class JoinGroupRequestsResolver {
     return true;
   }
 
-  @UseGuards(FirebaseAuthGuard)
+  @UseGuards(BetterAuthGuard)
   @Mutation(() => GroupJoinRequestGQL, {
     name: 'addOrInviteGroupMember',
     nullable: true,
@@ -59,7 +59,7 @@ export class JoinGroupRequestsResolver {
     );
   }
 
-  @UseGuards(FirebaseAuthGuard)
+  @UseGuards(BetterAuthGuard)
   @Mutation(() => Boolean, {
     name: 'approveGroupJoinRequest',
     description: 'Approves a pending group join request.',
@@ -75,7 +75,7 @@ export class JoinGroupRequestsResolver {
     return true;
   }
 
-  @UseGuards(FirebaseAuthGuard)
+  @UseGuards(BetterAuthGuard)
   @Mutation(() => Boolean, {
     name: 'rejectGroupJoinRequest',
     description: 'Rejects a pending join request as a group admin or moderator.',
@@ -91,7 +91,7 @@ export class JoinGroupRequestsResolver {
     return true;
   }
 
-  @UseGuards(FirebaseAuthGuard)
+  @UseGuards(BetterAuthGuard)
   @Mutation(() => Boolean, {
     name: 'cancelGroupJoinRequest',
     description: 'Cancels the current user pending join request.',
@@ -107,7 +107,7 @@ export class JoinGroupRequestsResolver {
     return true;
   }
 
-  @UseGuards(FirebaseAuthGuard)
+  @UseGuards(BetterAuthGuard)
   @Mutation(() => Boolean, {
     name: 'acceptGroupInvitation',
     description: 'Accepts a group invitation for the current user.',
@@ -123,7 +123,7 @@ export class JoinGroupRequestsResolver {
     return true;
   }
 
-  @UseGuards(FirebaseAuthGuard)
+  @UseGuards(BetterAuthGuard)
   @Mutation(() => Boolean, {
     name: 'declineGroupInvitation',
     description: 'Declines a group invitation for the current user.',
@@ -139,7 +139,7 @@ export class JoinGroupRequestsResolver {
     return true;
   }
 
-  @UseGuards(FirebaseAuthGuard)
+  @UseGuards(BetterAuthGuard)
   @Query(() => [GroupJoinRequestGQL], { name: 'getGroupJoinRequests' })
   async getGroupJoinRequests(
     @Args('groupId', { type: () => ID }) groupId: string,
@@ -184,7 +184,7 @@ export class JoinGroupRequestsResolver {
     return true;
   }
 
-  @UseGuards(FirebaseAuthGuard)
+  @UseGuards(BetterAuthGuard)
   @Query(() => [GroupJoinRequestGQL], { name: 'getMyGroupJoinRequests' })
   async getMyGroupJoinRequests(
     @Args() args: GetMyGroupJoinRequestsArgs,

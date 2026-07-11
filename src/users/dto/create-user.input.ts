@@ -63,7 +63,7 @@ export class CreateUserInput {
   //   @Field(() => ID)
   //   @IsNotEmpty()
   //   @IsString()
-  //   firebaseUid: string; // Required from Firebase Auth
+  //   authUserId: string; // Required from Better Auth
 
   @Field()
   @IsNotEmpty()

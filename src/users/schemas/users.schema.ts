@@ -109,7 +109,7 @@ export const ProfessionalAccreditationSchema = SchemaFactory.createForClass(
 export class User extends Document {
   // Extend Document for Mongoose typings
   @Prop({ type: String, required: true, unique: true })
-  firebaseUid: string;
+  authUserId: string;
 
   @Prop({ type: String, required: true, lowercase: true, trim: true })
   email: string;
@@ -221,4 +221,4 @@ export type LegalEntityUserDocument = LegalEntityUser & Document;
 UserSchema.index({ email: 1 }, { unique: true }); // Login queries
 UserSchema.index({ slug: 1 }, { unique: true }); // Profile lookups
 UserSchema.index({ accountStatus: 1 }); // Active users filter
-// UserSchema.index({ firebaseUid: 1 }, { unique: true }); // Removed: Duplicate of @Prop({ unique: true })
+// UserSchema.index({ authUserId: 1 }, { unique: true }); // Removed: Duplicate of @Prop({ unique: true })
