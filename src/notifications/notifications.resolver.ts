@@ -91,7 +91,9 @@ export class NotificationsResolver {
     },
     resolve: (payload) => payload.notificationAdded,
   })
-  // @UseGuards(BetterAuthGuard)
+  // No @UseGuards here: WS connections are already authenticated in
+  // onConnect (app.module.ts) before any subscription is allowed, and the
+  // filter above scopes delivery to the connected user's own notifications.
   notificationAdded() {
     return this.pubSub.asyncIterableIterator('NOTIFICATION_ADDED');
   }

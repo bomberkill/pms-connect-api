@@ -176,6 +176,7 @@ export class CommentsService {
   async findCommentsByPost(
     postId: string,
     paginationArgs: PaginationArgs,
+    includeDeleted = false,
   ): Promise<CommentDocument[]> {
     const { skip, limit } = paginationArgs;
 
@@ -185,7 +186,11 @@ export class CommentsService {
     }
 
     return this.commentModel
-      .find({ post: postId, parent: null })
+      .find({
+        post: postId,
+        parent: null,
+        ...(includeDeleted ? {} : { status: CommentStatus.VISIBLE }),
+      })
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit);
@@ -194,18 +199,33 @@ export class CommentsService {
   async findRepliesForComment(
     parentId: string,
     paginationArgs: PaginationArgs,
+    includeDeleted = false,
   ): Promise<CommentDocument[]> {
     const { skip, limit } = paginationArgs;
     return this.commentModel
-      .find({ parent: parentId }) // Fetch replies for a specific parent
+      .find({
+        parent: parentId, // Fetch replies for a specific parent
+        ...(includeDeleted ? {} : { status: CommentStatus.VISIBLE }),
+      })
       .sort({ createdAt: 'asc' }) // Show oldest replies first for conversational flow
       .skip(skip)
       .limit(limit);
     // .lean({ virtuals: true }); // Use .lean() for performance, and include virtuals like 'id'
   }
 
-  async findOne(id: string): Promise<CommentDocument> {
-    return this.commentModel.findById(id).exec();
+  async findOne(
+    id: string,
+    includeDeleted = false,
+  ): Promise<CommentDocument | null> {
+    const comment = await this.commentModel.findById(id).exec();
+    if (
+      comment &&
+      !includeDeleted &&
+      comment.status === CommentStatus.DELETED
+    ) {
+      return null;
+    }
+    return comment;
   }
 
   async findManyByIds(ids: readonly string[]): Promise<CommentDocument[]> {

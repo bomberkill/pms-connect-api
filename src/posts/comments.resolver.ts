@@ -24,7 +24,11 @@ import { LikeLoader, LikeLoaderKey } from './loaders/likes.loader';
 import { User } from 'src/users/models/users.model';
 import { Post } from './models/posts.model';
 import { CreateCommentInput } from './dto/create-comment.input';
-import { CurrentUser } from 'src/auth/decorators/current-user.decorator';
+import {
+  CurrentUser,
+  CurrentUserType,
+  isAdminUser,
+} from 'src/auth/decorators/current-user.decorator';
 import { CombinedAuthGuard } from 'src/auth/guards/combined-auth.guard';
 import { AdminAuthGuard } from 'src/admin-auth/guards/admin-auth.guard';
 import { PaginationArgs } from './dto/pagination.args';
@@ -56,7 +60,11 @@ export class CommentsResolver {
     @Args('postId', { type: () => ID }) postId: string,
     @Args() paginationArgs: PaginationArgs,
   ): Promise<CommentDocument[]> {
-    return this.commentsService.findCommentsByPost(postId, paginationArgs);
+    return this.commentsService.findCommentsByPost(
+      postId,
+      paginationArgs,
+      true,
+    );
   }
 
   @UseGuards(CombinedAuthGuard)
@@ -72,8 +80,9 @@ export class CommentsResolver {
   @Query(() => Comment, { name: 'getCommentById', nullable: true })
   async getCommentById(
     @Args('id', { type: () => ID }) id: string,
-  ): Promise<CommentDocument> {
-    return this.commentsService.findOne(id);
+    @CurrentUser() currentUser: CurrentUserType,
+  ): Promise<CommentDocument | null> {
+    return this.commentsService.findOne(id, isAdminUser(currentUser));
   }
 
   // --- Mutations ---

@@ -141,7 +141,7 @@ export class PostsResolver {
   async adminGetPosts(
     @Args() paginationArgs: PaginationArgs,
   ): Promise<PostDocument[]> {
-    return this.postsService.findAllPosts(paginationArgs);
+    return this.postsService.findAllPosts(paginationArgs, true);
   }
 
   @UseGuards(AdminAuthGuard)
@@ -149,7 +149,7 @@ export class PostsResolver {
   async adminGetPostById(
     @Args('id', { type: () => ID }) id: string,
   ): Promise<PostDocument> {
-    return this.postsService.findOne(id);
+    return this.postsService.findOne(id, true);
   }
 
   @UseGuards(AdminAuthGuard)

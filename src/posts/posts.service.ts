@@ -44,9 +44,9 @@ export class PostsService {
     return this.postModel.find({ _id: { $in: ids } }).exec();
   }
 
-  async findOne(id: string): Promise<PostDocument> {
+  async findOne(id: string, includeArchived = false): Promise<PostDocument> {
     const post = await this.postModel.findById(id).populate('author').exec();
-    if (!post) {
+    if (!post || (!includeArchived && post.status === PostStatus.ARCHIVED)) {
       throw new NotFoundException(`Post with ID "${id}" not found.`);
     }
     return post;
@@ -101,11 +101,13 @@ export class PostsService {
   async findPostsByAuthors(
     authorIds: string[],
     paginationArgs: PaginationArgs,
+    includeArchived = false,
   ): Promise<PostDocument[]> {
     const { skip, limit } = paginationArgs;
     return this.postModel
       .find({
         author: { $in: authorIds }, // Find posts where the author is in the provided list
+        ...(includeArchived ? {} : { status: PostStatus.PUBLISHED }),
       })
       .sort({ createdAt: -1 }) // Show newest posts first
       .skip(skip)
@@ -145,10 +147,13 @@ export class PostsService {
    * @param paginationArgs - Skip and limit for pagination.
    * @returns A paginated list of all posts.
    */
-  async findAllPosts(paginationArgs: PaginationArgs): Promise<PostDocument[]> {
+  async findAllPosts(
+    paginationArgs: PaginationArgs,
+    includeArchived = false,
+  ): Promise<PostDocument[]> {
     const { skip, limit } = paginationArgs;
     return this.postModel
-      .find() // No filter, gets all posts
+      .find(includeArchived ? {} : { status: PostStatus.PUBLISHED })
       .sort({ createdAt: -1 }) // Show newest posts first
       .skip(skip)
       .limit(limit)
