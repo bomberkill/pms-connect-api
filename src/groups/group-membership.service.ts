@@ -193,6 +193,15 @@ export class GroupMembershipService {
   }
 
   /**
+   * Get the ids of every group a user is a member of (unbounded — used to
+   * build query filters, not returned directly to clients).
+   */
+  async getUserGroupIds(userId: string): Promise<string[]> {
+    const ids = await this.membershipModel.distinct('group', { user: userId });
+    return ids.map((id) => id.toString());
+  }
+
+  /**
    * Check if user has a specific role in a group
    */
   async hasRole(

@@ -6,6 +6,8 @@ import {
   ID,
   Subscription,
   Int,
+  ResolveField,
+  Parent,
 } from '@nestjs/graphql';
 import { UsersService } from './users.service';
 import { FollowsService } from '../follows/follows.service';
@@ -18,6 +20,8 @@ import { AdminAuthGuard } from '../admin-auth/guards/admin-auth.guard';
 import {
   CurrentUser,
   CurrentUserType,
+  AppUserType,
+  isAdminUser,
 } from '../auth/decorators/current-user.decorator';
 import { UserDocument } from './schemas/users.schema';
 import { UpdateUserInput } from './dto/update-user.input';
@@ -43,7 +47,7 @@ export class UsersResolver {
   @Mutation(() => User, { name: 'createUser' }) // Returns a User, mutation name is 'createUser'
   async createUser(
     @Args('createUserInput') createUserInput: CreateUserInput,
-    @CurrentUser() currentUser: CurrentUserType, // Get the authenticated user
+    @CurrentUser() currentUser: AppUserType, // Get the authenticated user
   ): Promise<UserDocument> {
     // The service's create method returns a UserDocument.
     // GraphQL will automatically map the fields based on your @Field() decorators.
@@ -150,7 +154,7 @@ export class UsersResolver {
   @UseGuards(BetterAuthGuard)
   @Query(() => User, { name: 'me', nullable: true })
   async getMe(
-    @CurrentUser() user: CurrentUserType,
+    @CurrentUser() user: AppUserType,
   ): Promise<UserDocument | null> {
     // `user` is the UserDocument fetched by AuthService/BetterAuthStrategy, or
     // a transient `{ authUserId }` shape when the Better Auth session is
@@ -291,25 +295,22 @@ export class UsersResolver {
   @Subscription(() => FollowsUpdate, {
     name: 'followsUpdated',
     nullable: true,
-    filter: (payload, variables) => {
-      console.log('--- FollowsUpdated Subscription Filter ---');
-      // console.log('Received payload:', JSON.stringify(payload, null, 2));
-      // console.log('Received variables:', JSON.stringify(variables, null, 2));
-
-      // Defensive check: ignore malformed events
-      if (!payload || !payload.followsUpdated) {
-        // console.log('Filter result: false (malformed payload)');
+    filter: (payload, _variables, context) => {
+      // Scope strictly to the connected (WS-authenticated) user, not the
+      // client-supplied `userId` variable — otherwise any authenticated
+      // user could subscribe with someone else's id and get a live feed
+      // of that victim's follow/unfollow activity.
+      const currentUserId = context.user?._id?.toString();
+      if (!currentUserId) {
         return false;
       }
-      // Let the event pass if the subscribed user is either the follower or the one being followed.
+      if (!payload || !payload.followsUpdated) {
+        return false;
+      }
       const { follower, following } = payload.followsUpdated;
-      const isUserInvolved =
-        follower.userId === variables.userId ||
-        following.userId === variables.userId;
-      // console.log(`Filter condition: ${follower.userId} === ${variables.userId} || ${following.userId} === ${variables.userId}`);
-      // console.log('Filter result:', isUserInvolved);
-      // console.log('------------------------------------------');
-      return isUserInvolved;
+      return (
+        follower.userId === currentUserId || following.userId === currentUserId
+      );
     },
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     resolve: (payload, _args, _context) => {
@@ -324,5 +325,65 @@ export class UsersResolver {
     @Args('userId', { type: () => ID }) _userId: string,
   ) {
     return this.pubSub.asyncIterableIterator('FOLLOWS_UPDATED');
+  }
+
+  // --- Private-field access control ---
+  // email/phoneNumber/authUserId/blockedUsers/fcmTokens are PII/internal data
+  // that should only be visible to the profile owner or an admin, even
+  // though the User object is returned to any authenticated caller (e.g.
+  // getUserById, getUserBySlug, getFollowers, or embedded as a post/comment
+  // author). These field resolvers gate that, independent of which query
+  // fetched the parent User.
+  private canViewPrivateFields(
+    target: UserDocument,
+    viewer: CurrentUserType | null | undefined,
+  ): boolean {
+    if (isAdminUser(viewer)) return true;
+    if (viewer && '_id' in viewer) {
+      return viewer._id.toString() === target._id.toString();
+    }
+    return false;
+  }
+
+  @ResolveField('authUserId', () => ID, { nullable: true })
+  resolveAuthUserId(
+    @Parent() user: UserDocument,
+    @CurrentUser() viewer: CurrentUserType,
+  ): string | null {
+    return this.canViewPrivateFields(user, viewer) ? user.authUserId : null;
+  }
+
+  @ResolveField('email', () => String, { nullable: true })
+  resolveEmail(
+    @Parent() user: UserDocument,
+    @CurrentUser() viewer: CurrentUserType,
+  ): string | null {
+    return this.canViewPrivateFields(user, viewer) ? user.email : null;
+  }
+
+  @ResolveField('phoneNumber', () => String, { nullable: true })
+  resolvePhoneNumber(
+    @Parent() user: UserDocument,
+    @CurrentUser() viewer: CurrentUserType,
+  ): string | null {
+    return this.canViewPrivateFields(user, viewer) ? user.phoneNumber : null;
+  }
+
+  @ResolveField('blockedUsers', () => [ID], { nullable: true })
+  resolveBlockedUsers(
+    @Parent() user: UserDocument,
+    @CurrentUser() viewer: CurrentUserType,
+  ): string[] | null {
+    return this.canViewPrivateFields(user, viewer)
+      ? user.blockedUsers
+      : null;
+  }
+
+  @ResolveField('fcmTokens', () => [String], { nullable: true })
+  resolveFcmTokens(
+    @Parent() user: UserDocument,
+    @CurrentUser() viewer: CurrentUserType,
+  ): string[] | null {
+    return this.canViewPrivateFields(user, viewer) ? user.fcmTokens : null;
   }
 }

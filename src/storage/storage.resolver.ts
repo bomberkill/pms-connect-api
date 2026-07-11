@@ -3,7 +3,7 @@ import { UseGuards } from '@nestjs/common';
 import { BetterAuthGuard } from '../auth/guards/better-auth.guard';
 import {
   CurrentUser,
-  CurrentUserType,
+  AppUserType,
 } from '../auth/decorators/current-user.decorator';
 import { StorageService } from './storage.service';
 import { GetUploadUrlInput } from './dto/get-upload-url.input';
@@ -21,7 +21,7 @@ export class StorageResolver {
   })
   async getUploadUrl(
     @Args('input') input: GetUploadUrlInput,
-    @CurrentUser() currentUser: CurrentUserType,
+    @CurrentUser() currentUser: AppUserType,
   ): Promise<UploadUrlResponse> {
     // `currentUser` may be the transient `{ authUserId }` shape when this
     // runs during registration, before a Mongo profile exists — namespace
@@ -42,7 +42,7 @@ export class StorageResolver {
   })
   async deleteUploadedFile(
     @Args('key') key: string,
-    @CurrentUser() currentUser: CurrentUserType,
+    @CurrentUser() currentUser: AppUserType,
   ): Promise<boolean> {
     await this.storageService.deleteFile(key, currentUser.authUserId);
     return true;

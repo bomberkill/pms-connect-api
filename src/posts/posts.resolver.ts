@@ -16,7 +16,11 @@ import { UpdatePostInput } from './dto/update-post.input';
 import { CombinedAuthGuard } from '../auth/guards/combined-auth.guard';
 import { AdminAuthGuard } from '../admin-auth/guards/admin-auth.guard';
 import { PaginationArgs } from './dto/pagination.args';
-import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import {
+  CurrentUser,
+  CurrentUserType,
+} from '../auth/decorators/current-user.decorator';
+import { GroupsService } from '../groups/groups.service';
 import { UserDocument } from '../users/schemas/users.schema';
 import { PostDocument } from './schemas/posts.schema';
 import { Dataloader } from 'src/dataloader/dataloader.decorator';
@@ -27,7 +31,10 @@ import { Date } from 'mongoose';
 
 @Resolver(() => Post)
 export class PostsResolver {
-  constructor(private readonly postsService: PostsService) { }
+  constructor(
+    private readonly postsService: PostsService,
+    private readonly groupsService: GroupsService,
+  ) { }
 
   @UseGuards(CombinedAuthGuard)
   @Mutation(() => Post, { name: 'createPost' })
@@ -123,7 +130,9 @@ export class PostsResolver {
   async getPostsByGroup(
     @Args('groupId', { type: () => ID }) groupId: string,
     @Args() paginationArgs: PaginationArgs,
+    @CurrentUser() currentUser: CurrentUserType,
   ): Promise<PostDocument[]> {
+    await this.groupsService.assertCanViewGroupContent(groupId, currentUser);
     return this.postsService.findPostsByGroup(groupId, paginationArgs);
   }
 

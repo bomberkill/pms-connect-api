@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { GroupsService } from './groups.service';
 import { GroupsResolver } from './groups.resolver';
 import { JoinGroupRequestsService } from './join-group-requests.service';
@@ -24,7 +24,7 @@ import { PubSubModule } from '../pubsub/pubsub.module';
       { name: GroupJoinRequest.name, schema: GroupJoinRequestSchema },
       { name: GroupMembership.name, schema: GroupMembershipSchema },
     ]),
-    NotificationsModule,
+    forwardRef(() => NotificationsModule),
     PubSubModule,
   ],
   providers: [

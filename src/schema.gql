@@ -271,6 +271,13 @@ enum GroupMemberRole {
   MODERATOR
 }
 
+type GroupMembership {
+  _id: ID!
+  joinedAt: DateTime!
+  role: GroupMemberRole!
+  user: User!
+}
+
 """The privacy level of a group (PUBLIC, PRIVATE, SECRET)"""
 enum GroupPrivacy {
   PRIVATE
@@ -281,20 +288,16 @@ enum GroupPrivacy {
 """Represents an individual healthcare professional."""
 type IndividualUserObject implements User {
   accountStatus: AccountStatus!
-
-  """User's unique identifier from Better Auth"""
-  authUserId: ID!
+  authUserId: ID
   bio: String
-
-  """List of blocked user IDs"""
-  blockedUsers: [ID!]!
+  blockedUsers: [ID!]
 
   """List of connected user IDs"""
   connections: [ID!]!
   coverPicUrl: String
   createdAt: DateTime!
-  email: String!
-  fcmTokens: [String!]!
+  email: String
+  fcmTokens: [String!]
   firstName: String!
 
   """List of follower user IDs"""
@@ -311,7 +314,7 @@ type IndividualUserObject implements User {
 
   """User location details"""
   location: LocationObject
-  phoneNumber: String!
+  phoneNumber: String
 
   """Professional accreditation documents or details."""
   professionalAccreditation: [ProfessionalAccreditationObject!]
@@ -336,26 +339,22 @@ type IndividualUserObject implements User {
 """Represents a legal entity in the healthcare sector."""
 type LegalEntityUserObject implements User {
   accountStatus: AccountStatus!
-
-  """User's unique identifier from Better Auth"""
-  authUserId: ID!
+  authUserId: ID
   bio: String
-
-  """List of blocked user IDs"""
-  blockedUsers: [ID!]!
+  blockedUsers: [ID!]
 
   """List of connected user IDs"""
   connections: [ID!]!
   coverPicUrl: String
   createdAt: DateTime!
-  email: String!
+  email: String
 
   """Official name of the legal entity"""
   entityName: String!
 
   """Type of legal entity (e.g., Hospital, Clinic, Association)"""
   entityType: EntityType!
-  fcmTokens: [String!]!
+  fcmTokens: [String!]
 
   """List of follower user IDs"""
   followers: [ID!]!
@@ -370,7 +369,7 @@ type LegalEntityUserObject implements User {
 
   """User location details"""
   location: LocationObject
-  phoneNumber: String!
+  phoneNumber: String
 
   """Professional accreditation documents or details."""
   professionalAccreditation: [ProfessionalAccreditationObject!]
@@ -423,16 +422,42 @@ input MediaItemInput {
 
 type Mutation {
   acceptConnectionRequest(requestId: ID!): Boolean!
-  acceptGroupJoinRequest(requestId: ID!): Boolean!
+
+  """Accepts a group invitation for the current user."""
+  acceptGroupInvitation(input: RespondToGroupJoinRequestInput!): Boolean!
   addBookmark(itemId: ID!, itemType: BookmarkableType!): Boolean!
   addComment(createCommentInput: CreateCommentInput!): Comment!
+
+  """
+  Adds a member directly when allowed, or creates an invitation for private groups.
+  """
+  addOrInviteGroupMember(groupId: ID!, userId: ID!): GroupJoinRequest
+  adminApproveGroupJoinRequest(input: RespondToGroupJoinRequestInput!): Boolean!
+  adminDeleteGroup(groupId: ID!): Boolean!
   adminLogin(adminLoginInput: AdminLoginInput!): AdminLoginResponse!
+  adminRejectGroupJoinRequest(input: RespondToGroupJoinRequestInput!): Boolean!
+  adminRemoveComment(commentId: ID!): Boolean!
+  adminRemoveGroupMember(groupId: ID!, userId: ID!): Group!
+  adminRemovePost(id: ID!): Boolean!
+  adminUpdateGroup(groupId: ID!, updateGroupInput: UpdateGroupInput!): Group!
+  adminUpdateGroupMemberRole(groupId: ID!, updateGroupMemberRoleInput: UpdateGroupMemberRoleInput!): GroupMembership!
+
+  """Approves a pending group join request."""
+  approveGroupJoinRequest(input: RespondToGroupJoinRequestInput!): Boolean!
+
+  """Cancels the current user pending join request."""
+  cancelGroupJoinRequest(input: RespondToGroupJoinRequestInput!): Boolean!
   createAdminUser(createAdminUserInput: CreateAdminUserInput!): AdminUser!
   createGroup(createGroupInput: CreateGroupInput!): Group!
   createPost(createPostInput: CreatePostInput!): Post!
   createUser(createUserInput: CreateUserInput!): User!
+
+  """Declines a group invitation for the current user."""
+  declineGroupInvitation(input: RespondToGroupJoinRequestInput!): Boolean!
   declineOrCancelConnectionRequest(requestId: ID!): Boolean!
-  declineOrCancelGroupJoinRequest(requestId: ID!): Boolean!
+
+  """Allows the group creator to delete the group."""
+  deleteGroup(groupId: ID!): Boolean!
 
   """Deletes a file the current user previously uploaded to R2."""
   deleteUploadedFile(key: String!): Boolean!
@@ -441,25 +466,34 @@ type Mutation {
   """Returns a presigned URL to upload a file directly to Cloudflare R2."""
   getUploadUrl(input: GetUploadUrlInput!): UploadUrlResponse!
 
-  """Allows an admin/moderator to invite or directly add a user to a group."""
-  inviteOrAddUserToGroup(groupId: ID!, userIdToInvite: ID!): GroupJoinRequest
-  leaveOrRemoveMemberFromGroup(groupId: ID!, userIdToRemove: ID): Group!
+  """Allows the current user to leave a group."""
+  leaveGroup(groupId: ID!): Group!
   likeComment(commentId: ID!): Boolean!
   likePost(postId: ID!): Boolean!
   markNotificationsAsRead(notificationIds: [ID!]!): Boolean!
   registerFcmToken(token: String!): Boolean!
+
+  """Rejects a pending join request as a group admin or moderator."""
+  rejectGroupJoinRequest(input: RespondToGroupJoinRequestInput!): Boolean!
   removeBookmark(itemId: ID!): Boolean!
   removeComment(commentId: ID!): Boolean!
   removeConnection(userIdB: ID!): Boolean!
+
+  """Allows an authorized member to remove another member."""
+  removeGroupMember(groupId: ID!, userId: ID!): Group!
   removePost(id: ID!): Boolean!
 
   """Initiates the password reset process for an admin."""
   requestAdminPasswordReset(requestAdminPasswordResetInput: RequestAdminPasswordResetInput!): Boolean!
 
+  """
+  Requests to join a group or joins immediately when the group is public.
+  """
+  requestToJoinGroup(groupId: ID!): Boolean!
+
   """Resets the admin password using a token."""
   resetAdminPassword(resetAdminPasswordInput: ResetAdminPasswordInput!): AdminUser!
   sendConnectionRequest(recipientId: ID!): Boolean!
-  sendGroupJoinRequest(groupId: ID!): Boolean!
   unfollow(userId: ID!): Boolean!
   unlikeComment(commentId: ID!): Boolean!
   unlikePost(postId: ID!): Boolean!
@@ -467,6 +501,9 @@ type Mutation {
   updateAccountStatus(updateAccountStatusInput: UpdateAccountStatusInput!): User!
   updateAdminUser(id: ID!, updateAdminUserInput: UpdateAdminUserInput!): AdminUser!
   updateGroup(groupId: ID!, updateGroupInput: UpdateGroupInput!): Group!
+
+  """Allows a group admin to update a member role."""
+  updateGroupMemberRole(groupId: ID!, updateGroupMemberRoleInput: UpdateGroupMemberRoleInput!): GroupMembership!
 
   """Updates the authenticated user's email address."""
   updateMyEmail(newEmail: String!): User!
@@ -484,6 +521,7 @@ type Notification {
   id: ID!
   message: String!
   read: Boolean!
+  recipient: User!
   sender: User!
   type: NotificationType!
 }
@@ -561,13 +599,50 @@ type ProfessionalAccreditationObject {
 }
 
 type Query {
-  """Gets the currently authenticated admin user."""
-  adminMe: AdminUser!
-  adminUser(id: ID!): AdminUser
-  allAdminUsers: [AdminUser!]!
-  checkUserExistsByEmail(email: String!): CheckUserExistsResponse!
-  checkUserExistsByPhoneNumber(phoneNumber: String!): CheckUserExistsResponse!
-  getAllGroupJoinRequests(
+  adminGetCommentsByPost(
+    """Number of items to return"""
+    limit: Int! = 10
+    postId: ID!
+
+    """Number of items to skip"""
+    skip: Int! = 0
+  ): [Comment!]!
+  adminGetConnectionRequests(
+    """Number of items to return"""
+    limit: Int! = 10
+    recipientId: ID
+    requesterId: ID
+
+    """Number of items to skip"""
+    skip: Int! = 0
+    status: ConnectionRequestStatusGQL
+  ): [ConnectionRequest!]!
+  adminGetConnections(
+    """Number of items to return"""
+    limit: Int! = 10
+
+    """Number of items to skip"""
+    skip: Int! = 0
+    userId: ID!
+  ): [User!]!
+  adminGetFollowers(
+    """Number of items to return"""
+    limit: Int! = 10
+
+    """Number of items to skip"""
+    skip: Int! = 0
+    userId: ID!
+  ): [User!]!
+  adminGetFollowing(
+    """Number of items to return"""
+    limit: Int! = 10
+
+    """Number of items to skip"""
+    skip: Int! = 0
+    userId: ID!
+  ): [User!]!
+  adminGetGroupById(id: ID!): Group
+  adminGetGroupJoinRequests(
     """Filter by a specific group ID"""
     groupId: ID
 
@@ -580,6 +655,55 @@ type Query {
     """Filter by status"""
     status: GroupJoinRequestStatusGQL
   ): [GroupJoinRequest!]!
+  adminGetGroupMembers(
+    groupId: ID!
+
+    """Number of items to return"""
+    limit: Int! = 10
+
+    """Number of items to skip"""
+    skip: Int! = 0
+  ): [GroupMembership!]!
+  adminGetGroups(
+    """Number of items to return"""
+    limit: Int! = 10
+
+    """Filter by privacy level"""
+    privacy: GroupPrivacy
+
+    """Search by group name"""
+    search: String
+
+    """Number of items to skip"""
+    skip: Int! = 0
+  ): [Group!]!
+  adminGetNotifications(
+    """Number of items to return"""
+    limit: Int! = 10
+    read: Boolean
+    recipientId: ID
+    senderId: ID
+
+    """Number of items to skip"""
+    skip: Int! = 0
+    type: NotificationType
+  ): [Notification!]!
+  adminGetPostById(id: ID!): Post
+  adminGetPosts(
+    """Number of items to return"""
+    limit: Int! = 10
+
+    """Number of items to skip"""
+    skip: Int! = 0
+  ): [Post!]!
+
+  """Gets the currently authenticated admin user."""
+  adminMe: AdminUser!
+  adminUnreadNotificationsCount(recipientId: ID): Float!
+  adminUser(id: ID!): AdminUser
+  allAdminUsers: [AdminUser!]!
+  checkUserExistsByEmail(email: String!): CheckUserExistsResponse!
+  checkUserExistsByPhoneNumber(phoneNumber: String!): CheckUserExistsResponse!
   getAllUsers(
     """Number of items to return"""
     limit: Int = 10
@@ -607,7 +731,14 @@ type Query {
     """Number of items to skip"""
     skip: Int! = 0
   ): [Comment!]!
-  getConnections(userId: ID!): [User!]!
+  getConnections(
+    """Number of items to return"""
+    limit: Int! = 10
+
+    """Number of items to skip"""
+    skip: Int! = 0
+    userId: ID!
+  ): [User!]!
   getFeed(
     """Number of items to return"""
     limit: Int! = 10
@@ -615,13 +746,36 @@ type Query {
     """Number of items to skip"""
     skip: Int! = 0
   ): [Post!]!
-  getFollowers(userId: ID!): [User!]!
+  getFollowers(
+    """Number of items to return"""
+    limit: Int! = 10
+
+    """Number of items to skip"""
+    skip: Int! = 0
+    userId: ID!
+  ): [User!]!
   getFollowersCount(userId: ID!): Int!
-  getFollowing(userId: ID!): [User!]!
+  getFollowing(
+    """Number of items to return"""
+    limit: Int! = 10
+
+    """Number of items to skip"""
+    skip: Int! = 0
+    userId: ID!
+  ): [User!]!
   getFollowingCount(userId: ID!): Int!
   getGroupById(id: ID!): Group
   getGroupBySlug(slug: String!): Group
   getGroupJoinRequests(groupId: ID!, status: GroupJoinRequestStatusGQL = PENDING): [GroupJoinRequest!]!
+  getGroupMembers(
+    groupId: ID!
+
+    """Number of items to return"""
+    limit: Int! = 10
+
+    """Number of items to skip"""
+    skip: Int! = 0
+  ): [GroupMembership!]!
   getGroups(
     """Number of items to return"""
     limit: Int! = 10
@@ -639,6 +793,17 @@ type Query {
     """Filter requests by status (e.g., PENDING)"""
     status: ConnectionRequestStatusGQL
   ): [ConnectionRequest!]!
+  getMyGroupJoinRequests(
+    groupId: ID
+
+    """Number of items to return"""
+    limit: Int! = 10
+
+    """Number of items to skip"""
+    skip: Int! = 0
+    status: GroupJoinRequestStatusGQL
+  ): [GroupJoinRequest!]!
+  getMyGroupMembership(groupId: ID!): GroupMembership
   getMyNotifications(
     """Number of items to return"""
     limit: Int! = 10
@@ -692,6 +857,10 @@ input ResetAdminPasswordInput {
   token: String!
 }
 
+input RespondToGroupJoinRequestInput {
+  requestId: ID!
+}
+
 """Medical specialty or field of activity for an individual professional."""
 enum Speciality {
   CAREGIVERS
@@ -733,6 +902,11 @@ input UpdateGroupInput {
   description: String
   name: String
   privacy: GroupPrivacy = PUBLIC
+}
+
+input UpdateGroupMemberRoleInput {
+  role: GroupMemberRole!
+  userId: ID!
 }
 
 input UpdatePostInput {
@@ -785,20 +959,16 @@ type UploadUrlResponse {
 """Represents a user, can be an individual or a legal entity."""
 interface User {
   accountStatus: AccountStatus!
-
-  """User's unique identifier from Better Auth"""
-  authUserId: ID!
+  authUserId: ID
   bio: String
-
-  """List of blocked user IDs"""
-  blockedUsers: [ID!]!
+  blockedUsers: [ID!]
 
   """List of connected user IDs"""
   connections: [ID!]!
   coverPicUrl: String
   createdAt: DateTime!
-  email: String!
-  fcmTokens: [String!]!
+  email: String
+  fcmTokens: [String!]
 
   """List of follower user IDs"""
   followers: [ID!]!
@@ -813,7 +983,7 @@ interface User {
 
   """User location details"""
   location: LocationObject
-  phoneNumber: String!
+  phoneNumber: String
 
   """Professional accreditation documents or details."""
   professionalAccreditation: [ProfessionalAccreditationObject!]

@@ -8,7 +8,12 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model, FilterQuery } from 'mongoose';
 import slugify from 'slugify';
 import { randomBytes } from 'crypto';
-import { Group, GroupDocument, GroupMemberRole } from './schemas/group.schema';
+import {
+  Group,
+  GroupDocument,
+  GroupMemberRole,
+  GroupPrivacy,
+} from './schemas/group.schema';
 import {
   GroupJoinRequest,
   GroupJoinRequestDocument,
@@ -19,6 +24,10 @@ import { UpdateGroupInput } from './dto/update-group.input';
 import { UserDocument } from '../users/schemas/users.schema';
 import { GroupMembershipService } from './group-membership.service';
 import { GroupMembershipDocument } from './schemas/group-membership.schema';
+import {
+  CurrentUserType,
+  isAdminUser,
+} from '../auth/decorators/current-user.decorator';
 
 @Injectable()
 export class GroupsService {
@@ -94,6 +103,41 @@ export class GroupsService {
    */
   async findGroupById(id: string): Promise<GroupDocument | null> {
     return this.groupModel.findById(id).exec();
+  }
+
+  /**
+   * Guards group *content* (members, posts) rather than the group's own
+   * metadata: for PRIVATE/SECRET groups, only members and admins may view
+   * the member list or post feed. Basic group metadata (name, description,
+   * member count) stays visible to any authenticated caller via
+   * findBySlug/findGroupById — only content behind this check is gated.
+   */
+  async assertCanViewGroupContent(
+    groupId: string,
+    viewer: CurrentUserType | null | undefined,
+  ): Promise<GroupDocument> {
+    const group = await this.groupModel.findById(groupId);
+    if (!group) {
+      throw new NotFoundException(`Group with ID "${groupId}" not found.`);
+    }
+    if (group.privacy === GroupPrivacy.PUBLIC || isAdminUser(viewer)) {
+      return group;
+    }
+    if (!viewer || !('_id' in viewer)) {
+      throw new ForbiddenException(
+        'You must be a member of this group to view its content.',
+      );
+    }
+    const isMember = await this.membershipService.isMember(
+      groupId,
+      viewer._id.toString(),
+    );
+    if (!isMember) {
+      throw new ForbiddenException(
+        'You must be a member of this group to view its content.',
+      );
+    }
+    return group;
   }
 
   /**
@@ -421,7 +465,10 @@ export class GroupsService {
    * @param args Pagination and filter arguments.
    * @returns A list of group documents.
    */
-  async findAll(args: GetGroupsArgs): Promise<GroupDocument[]> {
+  async findAll(
+    args: GetGroupsArgs,
+    viewer?: CurrentUserType | null,
+  ): Promise<GroupDocument[]> {
     const { skip, limit, search, privacy } = args;
     const filters: FilterQuery<GroupDocument> = {};
 
@@ -431,6 +478,21 @@ export class GroupsService {
 
     if (privacy) {
       filters.privacy = privacy;
+    }
+
+    // SECRET groups are discoverable only by their members (or an admin) —
+    // exclude them from the general listing for everyone else.
+    if (!isAdminUser(viewer)) {
+      const memberGroupIds =
+        viewer && '_id' in viewer
+          ? await this.membershipService.getUserGroupIds(
+              viewer._id.toString(),
+            )
+          : [];
+      filters.$or = [
+        { privacy: { $ne: GroupPrivacy.SECRET } },
+        { _id: { $in: memberGroupIds } },
+      ];
     }
 
     return this.groupModel

@@ -15,6 +15,7 @@ import { LikesService } from './likes.service';
 import { LikesResolver } from './likes.resolver';
 import { CommentLoader } from './loaders/comments.loader';
 import { BookmarksModule } from 'src/bookmarks/bookmarks.module';
+import { GroupsModule } from '../groups/groups.module';
 
 @Module({
   imports: [
@@ -27,6 +28,7 @@ import { BookmarksModule } from 'src/bookmarks/bookmarks.module';
     forwardRef(() => NotificationsModule),
     forwardRef(() => UsersModule),
     forwardRef(() => BookmarksModule),
+    forwardRef(() => GroupsModule),
   ],
   providers: [
     PostsService,

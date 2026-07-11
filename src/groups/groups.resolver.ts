@@ -15,9 +15,13 @@ import { GetGroupsArgs } from './dto/get-groups.args';
 import { UpdateGroupInput } from './dto/update-group.input';
 import { CombinedAuthGuard } from '../auth/guards/combined-auth.guard';
 import { AdminAuthGuard } from '../admin-auth/guards/admin-auth.guard';
-import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import {
+  CurrentUser,
+  CurrentUserType,
+  isAdminUser,
+} from '../auth/decorators/current-user.decorator';
 import { UserDocument } from '../users/schemas/users.schema';
-import { GroupDocument } from './schemas/group.schema';
+import { GroupDocument, GroupPrivacy } from './schemas/group.schema';
 import { User } from '../users/models/users.model';
 import { Dataloader } from '../dataloader/dataloader.decorator';
 import { UserLoader } from '../users/loaders/users.loader';
@@ -137,14 +141,20 @@ export class GroupsResolver {
 
   @UseGuards(CombinedAuthGuard)
   @Query(() => [GroupGQL], { name: 'getGroups' })
-  async getGroups(@Args() args: GetGroupsArgs): Promise<GroupDocument[]> {
-    return this.groupsService.findAll(args);
+  async getGroups(
+    @Args() args: GetGroupsArgs,
+    @CurrentUser() currentUser: CurrentUserType,
+  ): Promise<GroupDocument[]> {
+    return this.groupsService.findAll(args, currentUser);
   }
 
   @UseGuards(AdminAuthGuard)
   @Query(() => [GroupGQL], { name: 'adminGetGroups' })
-  async adminGetGroups(@Args() args: GetGroupsArgs): Promise<GroupDocument[]> {
-    return this.groupsService.findAll(args);
+  async adminGetGroups(
+    @Args() args: GetGroupsArgs,
+    @CurrentUser() currentUser: CurrentUserType,
+  ): Promise<GroupDocument[]> {
+    return this.groupsService.findAll(args, currentUser);
   }
 
   @UseGuards(AdminAuthGuard)
@@ -168,8 +178,10 @@ export class GroupsResolver {
   @Query(() => [GroupMembershipGQL], { name: 'getGroupMembers' })
   async getGroupMembers(
     @Args() args: GetGroupMembersArgs,
+    @CurrentUser() currentUser: CurrentUserType,
   ): Promise<GroupMembershipDocument[]> {
     const { groupId, ...paginationArgs } = args;
+    await this.groupsService.assertCanViewGroupContent(groupId, currentUser);
     return this.membershipService.getMembers(groupId, paginationArgs);
   }
 
@@ -247,7 +259,28 @@ export class GroupsResolver {
   async getMembers(
     @Parent() group: GroupDocument,
     @Dataloader(UserLoader) userLoader: UserLoader,
+    @CurrentUser() currentUser: CurrentUserType,
   ): Promise<GroupMemberGQL[]> {
+    // Unlike the dedicated getGroupMembers query (which throws so the
+    // frontend can show a "join to view members" prompt), this field is
+    // embedded in whatever query fetched `group` — return an empty list
+    // rather than throwing, so a non-member browsing a private group's
+    // basic metadata doesn't get the whole group nulled out over this
+    // one nested field.
+    if (
+      group.privacy !== GroupPrivacy.PUBLIC &&
+      !isAdminUser(currentUser) &&
+      !(
+        '_id' in currentUser &&
+        (await this.membershipService.isMember(
+          group._id.toString(),
+          currentUser._id.toString(),
+        ))
+      )
+    ) {
+      return [];
+    }
+
     const memberships = await this.membershipService.getMembers(group._id.toString(), {
       skip: 0,
       limit: Number.MAX_SAFE_INTEGER,
