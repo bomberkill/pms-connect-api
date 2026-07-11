@@ -22,6 +22,7 @@ import { ConnectionRequestsService } from './connection-requests.service';
 import { PUB_SUB } from '../pubsub/pubsub.module';
 import { ConnectionRequestForSubscriptionGQL } from './models/connection-update-subscription.model';
 import { GetConnectionRequestsArgs } from './dto/get-connection-requests.args';
+import { PaginationArgs } from '../posts/dto/pagination.args';
 
 @Resolver(() => ConnectionRequestGQL)
 export class ConnectionRequestsResolver {
@@ -90,8 +91,9 @@ export class ConnectionRequestsResolver {
   @Query(() => [User], { name: 'getConnections' })
   async getConnections(
     @Args('userId', { type: () => ID }) userId: string,
+    @Args() { skip, limit }: PaginationArgs,
   ): Promise<UserDocument[]> {
-    return this.connectionRequestsService.getConnections(userId);
+    return this.connectionRequestsService.getConnections(userId, skip, limit);
   }
 
   @UseGuards(AdminAuthGuard)

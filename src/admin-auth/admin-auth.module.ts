@@ -17,10 +17,7 @@ import { AdminAuthGuard } from './guards/admin-auth.guard';
     JwtModule.registerAsync({
       imports: [ConfigModule],
       useFactory: async (configService: ConfigService) => ({
-        secret: configService.get<string>(
-          'ADMIN_JWT_SECRET',
-          'DEFAULT_ADMIN_SECRET_KEY_32_CHARS',
-        ), // Use a strong, unique secret
+        secret: configService.getOrThrow<string>('ADMIN_JWT_SECRET'),
         signOptions: {
           expiresIn: configService.get<string>('ADMIN_JWT_EXPIRES_IN', '1h'), // e.g., 1h, 7d
         },

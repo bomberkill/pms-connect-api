@@ -23,6 +23,7 @@ import { UserDocument } from './schemas/users.schema';
 import { UpdateUserInput } from './dto/update-user.input';
 import { UpdateAccountStatusInput } from './dto/update-account-status.input';
 import { GetAllUsersArgs } from './dto/get-all-users.args';
+import { PaginationArgs } from '../posts/dto/pagination.args';
 import { CombinedAuthGuard } from '../auth/guards/combined-auth.guard';
 import { FollowsUpdate } from './models/follower-count-update.model';
 import { PUB_SUB } from '../pubsub/pubsub.module';
@@ -90,13 +91,10 @@ export class UsersResolver {
     return userDocument;
   }
 
-  // This query might need admin privileges in a real application
-  // This query might need admin privileges in a real application
-  // @UseGuards(BetterAuthGuard) // Basic protection, add role check for admin
-  // @UseGuards(AdminAuthGuard)
-  @UseGuards(CombinedAuthGuard) // Correct: Allow Admins to see list, potentially App Users too?
-  // Ideally, getAllUsers is an Admin feature.
-  // But sticking to CombinedAuthGuard as per user flow.
+  // Used by both the admin panel (user management list) and the app's
+  // "people you may know" suggestions feature for regular signed-in users —
+  // CombinedAuthGuard is intentional here, not a placeholder.
+  @UseGuards(CombinedAuthGuard)
   @Query(() => [User], { name: 'getAllUsers' })
   async getAllUsers(@Args() args: GetAllUsersArgs): Promise<UserDocument[]> {
     return this.usersService.findAll(args);
@@ -193,32 +191,36 @@ export class UsersResolver {
   @Query(() => [User], { name: 'getFollowers' })
   async getFollowers(
     @Args('userId', { type: () => ID }) userId: string,
+    @Args() { skip, limit }: PaginationArgs,
   ): Promise<UserDocument[]> {
-    return this.usersService.getFollowers(userId);
+    return this.usersService.getFollowers(userId, skip, limit);
   }
 
   @UseGuards(AdminAuthGuard)
   @Query(() => [User], { name: 'adminGetFollowers' })
   async adminGetFollowers(
     @Args('userId', { type: () => ID }) userId: string,
+    @Args() { skip, limit }: PaginationArgs,
   ): Promise<UserDocument[]> {
-    return this.usersService.getFollowers(userId);
+    return this.usersService.getFollowers(userId, skip, limit);
   }
 
   @UseGuards(BetterAuthGuard)
   @Query(() => [User], { name: 'getFollowing' })
   async getFollowing(
     @Args('userId', { type: () => ID }) userId: string,
+    @Args() { skip, limit }: PaginationArgs,
   ): Promise<UserDocument[]> {
-    return this.usersService.getFollowing(userId);
+    return this.usersService.getFollowing(userId, skip, limit);
   }
 
   @UseGuards(AdminAuthGuard)
   @Query(() => [User], { name: 'adminGetFollowing' })
   async adminGetFollowing(
     @Args('userId', { type: () => ID }) userId: string,
+    @Args() { skip, limit }: PaginationArgs,
   ): Promise<UserDocument[]> {
-    return this.usersService.getFollowing(userId);
+    return this.usersService.getFollowing(userId, skip, limit);
   }
 
   @UseGuards(BetterAuthGuard)
@@ -254,8 +256,9 @@ export class UsersResolver {
   @Query(() => [User], { name: 'adminGetConnections' })
   async adminGetConnections(
     @Args('userId', { type: () => ID }) userId: string,
+    @Args() { skip, limit }: PaginationArgs,
   ): Promise<UserDocument[]> {
-    return this.connectionRequestsService.getConnections(userId);
+    return this.connectionRequestsService.getConnections(userId, skip, limit);
   }
 
   @UseGuards(BetterAuthGuard)

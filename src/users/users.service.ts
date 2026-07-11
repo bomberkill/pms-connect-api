@@ -179,21 +179,33 @@ export class UsersService {
    * Gets all followers for a specific user.
    * Returns all users that have the specified user in their 'following' array.
    */
-  async getFollowers(userId: string): Promise<UserDocument[]> {
+  async getFollowers(
+    userId: string,
+    skip = 0,
+    limit = 10,
+  ): Promise<UserDocument[]> {
     const user = await this.userModel.findById(userId).select('_id').lean();
     if (!user) {
       throw new NotFoundException(`User with ID "${userId}" not found.`);
     }
 
     // Find all users who have this userId in their 'following' array
-    return this.userModel.find({ following: userId }).exec();
+    return this.userModel
+      .find({ following: userId })
+      .skip(skip)
+      .limit(limit)
+      .exec();
   }
 
   /**
    * Gets all users that a specific user is following.
    * Returns all users in the user's 'following' array.
    */
-  async getFollowing(userId: string): Promise<UserDocument[]> {
+  async getFollowing(
+    userId: string,
+    skip = 0,
+    limit = 10,
+  ): Promise<UserDocument[]> {
     const user = await this.userModel
       .findById(userId)
       .select('following')
@@ -204,7 +216,11 @@ export class UsersService {
     }
 
     // Fetch all users that this user is following
-    return this.userModel.find({ _id: { $in: user.following } }).exec();
+    return this.userModel
+      .find({ _id: { $in: user.following } })
+      .skip(skip)
+      .limit(limit)
+      .exec();
   }
 
   async update(

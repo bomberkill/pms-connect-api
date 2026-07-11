@@ -114,10 +114,7 @@ export class AdminAuthService {
         email: string;
         roles: string[];
       }>(token, {
-        secret: this.configService.get<string>(
-          'ADMIN_JWT_SECRET',
-          'DEFAULT_ADMIN_SECRET_KEY_32_CHARS',
-        ),
+        secret: this.configService.getOrThrow<string>('ADMIN_JWT_SECRET'),
       });
 
       // After verifying the token structure and signature,

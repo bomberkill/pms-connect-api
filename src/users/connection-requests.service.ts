@@ -241,7 +241,11 @@ export class ConnectionRequestsService {
    * Gets all connections for a specific user.
    * Returns all users that are in the user's connections array.
    */
-  async getConnections(userId: string): Promise<UserDocument[]> {
+  async getConnections(
+    userId: string,
+    skip = 0,
+    limit = 10,
+  ): Promise<UserDocument[]> {
     const user = await this.userModel
       .findById(userId)
       .select('connections')
@@ -252,7 +256,11 @@ export class ConnectionRequestsService {
     }
 
     // Fetch all connected users
-    return this.userModel.find({ _id: { $in: user.connections } }).exec();
+    return this.userModel
+      .find({ _id: { $in: user.connections } })
+      .skip(skip)
+      .limit(limit)
+      .exec();
   }
 
   async adminFindAll(

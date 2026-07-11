@@ -21,10 +21,7 @@ export class CombinedStrategy extends PassportStrategy(Strategy, 'combined') {
   ) {
     super();
     this.adminSecret = new TextEncoder().encode(
-      this.configService.get<string>(
-        'ADMIN_JWT_SECRET',
-        'DEFAULT_ADMIN_SECRET_KEY_32_CHARS',
-      ),
+      this.configService.getOrThrow<string>('ADMIN_JWT_SECRET'),
     );
   }
 
