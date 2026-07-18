@@ -11,7 +11,10 @@ import {
   GroupJoinRequestStatus,
 } from './schemas/group-join-request.schema';
 import { GetGroupJoinRequestsArgs } from './dto/get-join-requests.args';
-import { JoinGroupRequestsService } from './join-group-requests.service';
+import {
+  JoinGroupRequestsService,
+  PopulatedGroupJoinRequest,
+} from './join-group-requests.service';
 import { PUB_SUB } from '../pubsub/pubsub.module';
 import { RespondToGroupJoinRequestInput } from './dto/respond-to-group-join-request.input';
 import { GetMyGroupJoinRequestsArgs } from './dto/get-my-group-join-requests.args';
@@ -35,7 +38,7 @@ export class JoinGroupRequestsResolver {
   ): Promise<boolean> {
     await this.requestsService.sendJoinRequest(
       groupId,
-      currentUser._id.toString(),
+      currentUser.id,
     );
     return true;
   }
@@ -55,7 +58,7 @@ export class JoinGroupRequestsResolver {
     return this.requestsService.inviteUserToGroup(
       groupId,
       userId,
-      currentUser._id.toString(),
+      currentUser.id,
     );
   }
 
@@ -70,7 +73,7 @@ export class JoinGroupRequestsResolver {
   ): Promise<boolean> {
     await this.requestsService.acceptJoinRequest(
       input.requestId,
-      currentUser._id.toString(),
+      currentUser.id,
     );
     return true;
   }
@@ -86,7 +89,7 @@ export class JoinGroupRequestsResolver {
   ): Promise<boolean> {
     await this.requestsService.rejectJoinRequest(
       input.requestId,
-      currentUser._id.toString(),
+      currentUser.id,
     );
     return true;
   }
@@ -102,7 +105,7 @@ export class JoinGroupRequestsResolver {
   ): Promise<boolean> {
     await this.requestsService.cancelJoinRequest(
       input.requestId,
-      currentUser._id.toString(),
+      currentUser.id,
     );
     return true;
   }
@@ -118,7 +121,7 @@ export class JoinGroupRequestsResolver {
   ): Promise<boolean> {
     await this.requestsService.acceptGroupInvitation(
       input.requestId,
-      currentUser._id.toString(),
+      currentUser.id,
     );
     return true;
   }
@@ -134,7 +137,7 @@ export class JoinGroupRequestsResolver {
   ): Promise<boolean> {
     await this.requestsService.declineGroupInvitation(
       input.requestId,
-      currentUser._id.toString(),
+      currentUser.id,
     );
     return true;
   }
@@ -150,10 +153,10 @@ export class JoinGroupRequestsResolver {
     })
     status: GroupJoinRequestStatus,
     @CurrentUser() currentUser: UserDocument,
-  ): Promise<GroupJoinRequestDocument[]> {
+  ): Promise<PopulatedGroupJoinRequest[]> {
     return this.requestsService.findRequestsForGroup(
       groupId,
-      currentUser._id.toString(),
+      currentUser.id,
       status,
     );
   }
@@ -162,7 +165,7 @@ export class JoinGroupRequestsResolver {
   @Query(() => [GroupJoinRequestGQL], { name: 'adminGetGroupJoinRequests' })
   async adminGetGroupJoinRequests(
     @Args() args: GetGroupJoinRequestsArgs,
-  ): Promise<GroupJoinRequestDocument[]> {
+  ): Promise<PopulatedGroupJoinRequest[]> {
     return this.requestsService.findAll(args);
   }
 
@@ -189,9 +192,9 @@ export class JoinGroupRequestsResolver {
   async getMyGroupJoinRequests(
     @Args() args: GetMyGroupJoinRequestsArgs,
     @CurrentUser() currentUser: UserDocument,
-  ): Promise<GroupJoinRequestDocument[]> {
+  ): Promise<PopulatedGroupJoinRequest[]> {
     return this.requestsService.findRequestsForUser(
-      currentUser._id.toString(),
+      currentUser.id,
       args,
     );
   }

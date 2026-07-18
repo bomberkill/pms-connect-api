@@ -25,8 +25,10 @@ import { GroupDocument, GroupPrivacy } from './schemas/group.schema';
 import { User } from '../users/models/users.model';
 import { Dataloader } from '../dataloader/dataloader.decorator';
 import { UserLoader } from '../users/loaders/users.loader';
-import { GroupMembershipService } from './group-membership.service';
-import { GroupMembershipDocument } from './schemas/group-membership.schema';
+import {
+  GroupMembershipService,
+  PopulatedGroupMembership,
+} from './group-membership.service';
 import { GroupMembershipGQL } from './models/group-membership.model';
 import { GetGroupMembersArgs } from './dto/get-group-members.args';
 import { UpdateGroupMemberRoleInput } from './dto/update-group-member-role.input';
@@ -74,7 +76,7 @@ export class GroupsResolver {
     // Logic moved to service
     return this.groupsService.update(
       groupId,
-      currentUser._id.toString(),
+      currentUser.id,
       updateGroupInput,
     );
   }
@@ -88,7 +90,7 @@ export class GroupsResolver {
     @Args('groupId', { type: () => ID }) groupId: string,
     @CurrentUser() currentUser: UserDocument,
   ): Promise<GroupDocument> {
-    return this.groupsService.removeMember(groupId, currentUser._id.toString());
+    return this.groupsService.removeMember(groupId, currentUser.id);
   }
 
   @UseGuards(CombinedAuthGuard)
@@ -103,7 +105,7 @@ export class GroupsResolver {
   ): Promise<GroupDocument> {
     return this.groupsService.removeMember(
       groupId,
-      currentUser._id.toString(),
+      currentUser.id,
       userId,
     );
   }
@@ -118,10 +120,10 @@ export class GroupsResolver {
     @Args('updateGroupMemberRoleInput')
     updateGroupMemberRoleInput: UpdateGroupMemberRoleInput,
     @CurrentUser() currentUser: UserDocument,
-  ): Promise<GroupMembershipDocument> {
+  ): Promise<PopulatedGroupMembership> {
     return this.groupsService.updateMemberRole(
       groupId,
-      currentUser._id.toString(),
+      currentUser.id,
       updateGroupMemberRoleInput.userId,
       updateGroupMemberRoleInput.role,
     );
@@ -136,7 +138,7 @@ export class GroupsResolver {
     @Args('groupId', { type: () => ID }) groupId: string,
     @CurrentUser() currentUser: UserDocument,
   ): Promise<boolean> {
-    return this.groupsService.delete(groupId, currentUser._id.toString());
+    return this.groupsService.delete(groupId, currentUser.id);
   }
 
   @UseGuards(CombinedAuthGuard)
@@ -179,7 +181,7 @@ export class GroupsResolver {
   async getGroupMembers(
     @Args() args: GetGroupMembersArgs,
     @CurrentUser() currentUser: CurrentUserType,
-  ): Promise<GroupMembershipDocument[]> {
+  ): Promise<PopulatedGroupMembership[]> {
     const { groupId, ...paginationArgs } = args;
     await this.groupsService.assertCanViewGroupContent(groupId, currentUser);
     return this.membershipService.getMembers(groupId, paginationArgs);
@@ -189,7 +191,7 @@ export class GroupsResolver {
   @Query(() => [GroupMembershipGQL], { name: 'adminGetGroupMembers' })
   async adminGetGroupMembers(
     @Args() args: GetGroupMembersArgs,
-  ): Promise<GroupMembershipDocument[]> {
+  ): Promise<PopulatedGroupMembership[]> {
     const { groupId, ...paginationArgs } = args;
     return this.membershipService.getMembers(groupId, paginationArgs);
   }
@@ -209,7 +211,7 @@ export class GroupsResolver {
     @Args('groupId', { type: () => ID }) groupId: string,
     @Args('updateGroupMemberRoleInput')
     updateGroupMemberRoleInput: UpdateGroupMemberRoleInput,
-  ): Promise<GroupMembershipDocument> {
+  ): Promise<PopulatedGroupMembership> {
     return this.groupsService.adminUpdateMemberRole(
       groupId,
       updateGroupMemberRoleInput.userId,
@@ -233,32 +235,35 @@ export class GroupsResolver {
   async getMyGroupMembership(
     @Args('groupId', { type: () => ID }) groupId: string,
     @CurrentUser() currentUser: UserDocument,
-  ): Promise<GroupMembershipDocument | null> {
+  ): Promise<PopulatedGroupMembership | null> {
     return this.membershipService.getMembershipWithGroup(
       groupId,
-      currentUser._id.toString(),
+      currentUser.id,
     );
   }
 
   // --- Field Resolvers ---
+
+  // GroupGQL._id predates the migration (Post/User models use `id`); kept as
+  // an alias here rather than renaming the GraphQL field, to avoid a
+  // frontend-breaking schema change. Prisma's GroupModel only has `.id`.
+  @ResolveField('_id', () => ID)
+  resolveGroupId(@Parent() group: GroupDocument): string {
+    return group.id;
+  }
 
   @ResolveField('creator', () => User)
   async getCreator(
     @Parent() group: GroupDocument,
     @Dataloader(UserLoader) userLoader: UserLoader,
   ): Promise<User> {
-    const creatorId =
-      typeof group.creator === 'string'
-        ? group.creator
-        : (group.creator as any)._id.toString();
-    const user = await userLoader.load(creatorId);
+    const user = await userLoader.load(group.creatorId);
     return user as unknown as User;
   }
 
   @ResolveField('members', () => [GroupMemberGQL])
   async getMembers(
     @Parent() group: GroupDocument,
-    @Dataloader(UserLoader) userLoader: UserLoader,
     @CurrentUser() currentUser: CurrentUserType,
   ): Promise<GroupMemberGQL[]> {
     // Unlike the dedicated getGroupMembers query (which throws so the
@@ -271,34 +276,38 @@ export class GroupsResolver {
       group.privacy !== GroupPrivacy.PUBLIC &&
       !isAdminUser(currentUser) &&
       !(
-        '_id' in currentUser &&
-        (await this.membershipService.isMember(
-          group._id.toString(),
-          currentUser._id.toString(),
-        ))
+        'id' in currentUser &&
+        (await this.membershipService.isMember(group.id, currentUser.id))
       )
     ) {
       return [];
     }
 
-    const memberships = await this.membershipService.getMembers(group._id.toString(), {
+    // GroupMembershipService already resolves the full user object (Prisma
+    // User lives in a different database now, so it can't be a Mongoose
+    // .populate() — see attachUsers there) — no second lookup needed here.
+    const memberships = await this.membershipService.getMembers(group.id, {
       skip: 0,
       limit: Number.MAX_SAFE_INTEGER,
     });
 
-    return Promise.all(
-      memberships.map(async (membership) => {
-        const userId =
-          typeof membership.user === 'string'
-            ? membership.user
-            : (membership.user as any)._id.toString();
-        const user = await userLoader.load(userId);
-        return {
-          role: membership.role,
-          joinedAt: membership.joinedAt,
-          user: user as unknown as User,
-        };
-      }),
-    );
+    return memberships.map((membership) => ({
+      role: membership.role,
+      joinedAt: membership.joinedAt,
+      user: membership.user as unknown as User,
+    }));
+  }
+}
+
+// GroupMembershipGQL._id has the same pre-migration `_id` naming as
+// GroupGQL — same alias-resolver reasoning as above. No other field on
+// GroupMembershipGQL needs a resolver: `user`/`role`/`joinedAt` are already
+// present on the PopulatedGroupMembership object returned by
+// GroupMembershipService.
+@Resolver(() => GroupMembershipGQL)
+export class GroupMembershipResolver {
+  @ResolveField('_id', () => ID)
+  resolveMembershipId(@Parent() membership: PopulatedGroupMembership): string {
+    return membership.id;
   }
 }

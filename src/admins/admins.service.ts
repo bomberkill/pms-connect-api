@@ -4,18 +4,17 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
-import { AdminUser, AdminUserDocument } from './admin-user.schema';
+import * as bcrypt from 'bcrypt';
+import * as crypto from 'crypto';
+import { PrismaService } from '../prisma/prisma.service';
+import type { AdminUserDocument } from './admin-user.schema';
 import { CreateAdminUserInput } from './dto/create-admin-user.input';
 import { UpdateAdminUserInput } from './dto/update-admin-user.input';
-import * as crypto from 'crypto';
 
 @Injectable()
 export class AdminsService {
   constructor(
-    @InjectModel(AdminUser.name)
-    private adminUserModel: Model<AdminUserDocument>,
+    private readonly prisma: PrismaService,
     private configService: ConfigService,
   ) {}
 
@@ -24,41 +23,52 @@ export class AdminsService {
   ): Promise<AdminUserDocument> {
     const { email, password, ...restOfInput } = createAdminUserInput;
 
-    const existingAdmin = await this.adminUserModel.findOne({ email }).exec();
+    const existingAdmin = await this.prisma.adminUser.findUnique({
+      where: { email },
+    });
     if (existingAdmin) {
       throw new ConflictException(
         `Admin user with email "${email}" already exists.`,
       );
     }
 
-    // The password will be hashed by the pre-save hook in admin-user.schema.ts
-    // We pass the plain password to the 'passwordHash' field of the schema.
-    const newAdmin = new this.adminUserModel({
-      email,
-      passwordHash: password, // Schema's pre-save hook will hash this
-      ...restOfInput,
-    });
+    // Mongoose used to hash this in a pre-save hook — Prisma has no such
+    // hook, so the hashing happens explicitly here instead.
+    const passwordHash = await bcrypt.hash(password, 10);
 
-    return newAdmin.save();
+    return this.prisma.adminUser.create({
+      data: { email, passwordHash, ...restOfInput },
+    });
   }
 
   async findAll(): Promise<AdminUserDocument[]> {
-    return this.adminUserModel.find().exec();
+    return this.prisma.adminUser.findMany();
   }
 
   async findById(id: string): Promise<AdminUserDocument | null> {
-    return this.adminUserModel.findById(id).exec();
+    return this.prisma.adminUser.findUnique({ where: { id } });
   }
 
   async findByEmail(email: string): Promise<AdminUserDocument | null> {
-    return this.adminUserModel.findOne({ email }).exec();
+    return this.prisma.adminUser.findUnique({ where: { email } });
+  }
+
+  async comparePassword(admin: AdminUserDocument, attempt: string): Promise<boolean> {
+    return bcrypt.compare(attempt, admin.passwordHash);
+  }
+
+  async recordLogin(id: string): Promise<AdminUserDocument> {
+    return this.prisma.adminUser.update({
+      where: { id },
+      data: { lastLoginAt: new Date() },
+    });
   }
 
   async createPasswordResetToken(admin: AdminUserDocument): Promise<string> {
     const resetToken = crypto.randomBytes(32).toString('hex');
 
     // Hash the token before saving to DB for security (store only the hash)
-    admin.passwordResetToken = crypto
+    const passwordResetToken = crypto
       .createHash('sha256')
       .update(resetToken)
       .digest('hex');
@@ -67,11 +77,14 @@ export class AdminsService {
       'ADMIN_PASSWORD_RESET_TOKEN_DB_EXPIRES_IN_MINUTES',
       15,
     );
-    admin.passwordResetExpires = new Date(
+    const passwordResetExpires = new Date(
       Date.now() + expiresInMinutes * 60 * 1000,
     );
 
-    await admin.save({ validateBeforeSave: false }); // Skip validation for these fields
+    await this.prisma.adminUser.update({
+      where: { id: admin.id },
+      data: { passwordResetToken, passwordResetExpires },
+    });
 
     return resetToken; // Return the unhashed token to be sent via email
   }
@@ -82,9 +95,11 @@ export class AdminsService {
   ): Promise<AdminUserDocument> {
     const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
 
-    const admin = await this.adminUserModel.findOne({
-      passwordResetToken: hashedToken,
-      passwordResetExpires: { $gt: Date.now() },
+    const admin = await this.prisma.adminUser.findFirst({
+      where: {
+        passwordResetToken: hashedToken,
+        passwordResetExpires: { gt: new Date() },
+      },
     });
 
     if (!admin) {
@@ -93,26 +108,35 @@ export class AdminsService {
       );
     }
 
-    admin.passwordHash = newPassword; // The pre-save hook will hash this
-    admin.passwordResetToken = undefined;
-    admin.passwordResetExpires = undefined;
-    admin.failedLoginAttempts = 0; // Reset failed attempts
-    admin.isLockedOut = false; // Unlock account if it was locked
-    return admin.save();
+    const passwordHash = await bcrypt.hash(newPassword, 10);
+
+    return this.prisma.adminUser.update({
+      where: { id: admin.id },
+      data: {
+        passwordHash,
+        passwordResetToken: null,
+        passwordResetExpires: null,
+        failedLoginAttempts: 0, // Reset failed attempts
+        isLockedOut: false, // Unlock account if it was locked
+      },
+    });
   }
 
   async update(
     id: string,
     updateAdminUserInput: UpdateAdminUserInput,
   ): Promise<AdminUserDocument> {
-    const existingAdmin = await this.adminUserModel
-      .findByIdAndUpdate(id, { $set: updateAdminUserInput }, { new: true })
-      .exec();
-
-    if (!existingAdmin) {
-      throw new NotFoundException(`Admin user with ID "${id}" not found.`);
+    try {
+      return await this.prisma.adminUser.update({
+        where: { id },
+        data: updateAdminUserInput,
+      });
+    } catch (error) {
+      if (error.code === 'P2025') {
+        throw new NotFoundException(`Admin user with ID "${id}" not found.`);
+      }
+      throw error;
     }
-    return existingAdmin;
   }
 
   // Implement soft delete or permanent delete as needed

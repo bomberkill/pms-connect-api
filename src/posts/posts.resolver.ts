@@ -27,13 +27,14 @@ import { Dataloader } from 'src/dataloader/dataloader.decorator';
 import { UserLoader } from 'src/users/loaders/users.loader';
 import { LikeLoader } from '../posts/loaders/likes.loader';
 import { User } from 'src/users/models/users.model';
-import { Date } from 'mongoose';
+import { FollowsService } from '../follows/follows.service';
 
 @Resolver(() => Post)
 export class PostsResolver {
   constructor(
     private readonly postsService: PostsService,
     private readonly groupsService: GroupsService,
+    private readonly followsService: FollowsService,
   ) { }
 
   @UseGuards(CombinedAuthGuard)
@@ -42,7 +43,7 @@ export class PostsResolver {
     @Args('createPostInput') createPostInput: CreatePostInput,
     @CurrentUser() user: UserDocument,
   ): Promise<PostDocument> {
-    return this.postsService.create(createPostInput, user._id.toString());
+    return this.postsService.create(createPostInput, user.id);
     // return postDocument as unknown as Post;
   }
 
@@ -61,7 +62,7 @@ export class PostsResolver {
     @Args('id', { type: () => ID }) id: string,
     @CurrentUser() user: UserDocument,
   ): Promise<boolean> {
-    return this.postsService.remove(id, user._id.toString());
+    return this.postsService.remove(id, user.id);
   }
 
   @UseGuards(CombinedAuthGuard)
@@ -70,10 +71,12 @@ export class PostsResolver {
     @CurrentUser() user: UserDocument,
     @Args() paginationArgs: PaginationArgs,
   ): Promise<PostDocument[]> {
-    let authorIds: string[];
+    // User.following no longer exists as an array (Follow is its own table
+    // now — see the SQL migration notes) — fetch the ids explicitly.
+    const followingIds = await this.followsService.getFollowingIds(user.id);
 
     // Si l'utilisateur ne suit personne, on lui montre un fil de découverte.
-    if (user.following.length === 0) {
+    if (followingIds.length === 0) {
       // APPROCHE ACTUELLE (pour une nouvelle application) :
       // On affiche tous les posts récents de la plateforme pour favoriser la découverte.
       return this.postsService.findAllPosts(paginationArgs);
@@ -89,10 +92,7 @@ export class PostsResolver {
       */
     } else {
       // Sinon, on construit le fil d'actualité standard avec les posts des personnes suivies et ses propres posts.
-      authorIds = [
-        ...user.following.map((id) => id.toString()),
-        user._id.toString(),
-      ];
+      const authorIds = [...followingIds, user.id];
       return this.postsService.findPostsByAuthors(authorIds, paginationArgs);
       // return posts as unknown as Post[];
     }
@@ -111,7 +111,7 @@ export class PostsResolver {
     return this.postsService.countNewPosts(since);
     // if (user.following.length === 0) {
     // } else {
-    //   const authorIds = [...user.following.map(id => id.toString()), user._id.toString()];
+    //   const authorIds = [...user.following.map(id => id.toString()), user.id];
     //   return this.postsService.countNewPostsByAuthors(authorIds, since);
     // }
   }
@@ -170,7 +170,7 @@ export class PostsResolver {
   ): Promise<PostDocument> {
     return this.postsService.update(
       postId,
-      user._id.toString(),
+      user.id,
       updatePostInput,
     );
     // return updatedPost as unknown as Post;
@@ -183,13 +183,7 @@ export class PostsResolver {
     @Parent() post: PostDocument,
     @Dataloader(UserLoader) userLoader: UserLoader,
   ): Promise<UserDocument> {
-    // post.author peut être un ID ou un objet User populé.
-    // On s'assure de passer un ID au loader.
-    const authorId =
-      typeof post.author === 'string'
-        ? post.author
-        : (post.author as any)._id.toString();
-    return userLoader.load(authorId);
+    return userLoader.load(post.authorId);
   }
 
   @ResolveField('isLiked', () => Boolean, { nullable: true })
@@ -203,9 +197,9 @@ export class PostsResolver {
     }
     // Le DataLoader va regrouper tous les post.id et vérifier en une seule fois.
     return likeLoader.load({
-      likeableId: post._id.toString(),
+      likeableId: post.id,
       likeableType: 'Post',
-      userId: user._id.toString(),
+      userId: user.id,
     });
   }
 
@@ -219,8 +213,8 @@ export class PostsResolver {
       return null;
     }
     return bookmarkLoader.load({
-      userId: user._id.toString(),
-      itemId: post._id.toString(),
+      userId: user.id,
+      itemId: post.id,
     });
   }
 }

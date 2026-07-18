@@ -1,5 +1,5 @@
 import { ArgsType, Field, ID } from '@nestjs/graphql';
-import { IsBoolean, IsEnum, IsMongoId, IsOptional } from 'class-validator';
+import { IsBoolean, IsEnum, IsString, IsOptional } from 'class-validator';
 import { PaginationArgs } from '../../posts/dto/pagination.args';
 import { NotificationType } from '../schemas/notification.schema';
 
@@ -7,12 +7,12 @@ import { NotificationType } from '../schemas/notification.schema';
 export class GetAdminNotificationsArgs extends PaginationArgs {
   @Field(() => ID, { nullable: true })
   @IsOptional()
-  @IsMongoId()
+  @IsString()
   recipientId?: string;
 
   @Field(() => ID, { nullable: true })
   @IsOptional()
-  @IsMongoId()
+  @IsString()
   senderId?: string;
 
   @Field(() => NotificationType, { nullable: true })

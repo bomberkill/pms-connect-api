@@ -1,31 +1,70 @@
-import { Injectable, Inject } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
-import { FilterQuery, Model } from 'mongoose';
+import { Injectable, Inject, forwardRef } from '@nestjs/common';
 import { Messaging } from 'firebase-admin/messaging';
 import { PubSub } from 'graphql-subscriptions';
+import { PrismaService } from '../prisma/prisma.service';
 import { PUB_SUB } from '../pubsub/pubsub.module';
 import { FIREBASE_MESSAGING } from '../firebase/firebase.constants';
-import {
-  Notification,
-  NotificationDocument,
-} from './schemas/notification.schema';
+import type { NotificationDocument } from './schemas/notification.schema';
+import type { Prisma } from '../../generated/prisma/client';
 import { PaginationArgs } from '../posts/dto/pagination.args';
-import { User, UserDocument } from '../users/schemas/users.schema';
+import { UserDocument } from '../users/schemas/users.schema';
 import { CreateNotificationDto } from './dto/create-notification.dto';
 import { GetAdminNotificationsArgs } from './dto/get-admin-notifications.args';
+// UsersService imports NotificationsService (to send a follow
+// notification) — a genuine circular class dependency. Reflected
+// constructor-param metadata can come back `undefined` for one side of a
+// require cycle, so this uses an explicit forwardRef() token instead of
+// relying on the (possibly-circularly-undefined) reflected type.
+import { UsersService } from '../users/users.service';
+
+// Maps the old polymorphic entityId+onModel pair onto the Prisma exclusive-
+// arc FK columns (postId/commentId/groupId/targetUserId). Kept as a
+// standalone helper since both create() and the push-notification/URL
+// builders need to go the other way (FK -> logical entityId) too.
+function entityFieldsFor(
+  entityId: string | undefined,
+  onModel: CreateNotificationDto['onModel'],
+): Pick<
+  Prisma.NotificationUncheckedCreateInput,
+  'postId' | 'commentId' | 'groupId' | 'targetUserId'
+> {
+  if (!entityId || !onModel) return {};
+  switch (onModel) {
+    case 'Post':
+      return { postId: entityId };
+    case 'Comment':
+      return { commentId: entityId };
+    case 'Group':
+      return { groupId: entityId };
+    case 'User':
+      return { targetUserId: entityId };
+  }
+}
+
+function resolveEntityId(notification: NotificationDocument): string | null {
+  return (
+    notification.postId ??
+    notification.commentId ??
+    notification.groupId ??
+    notification.targetUserId ??
+    null
+  );
+}
 
 @Injectable()
 export class NotificationsService {
   constructor(
-    @InjectModel(Notification.name)
-    private notificationModel: Model<NotificationDocument>,
+    private readonly prisma: PrismaService,
     @Inject(PUB_SUB) private readonly pubSub: PubSub,
-    @InjectModel(User.name) private userModel: Model<UserDocument>,
+    // User now lives in Postgres — no more @InjectModel(User.name); Prisma
+    // via UsersService instead of a Mongoose model on this connection.
+    @Inject(forwardRef(() => UsersService))
+    private readonly usersService: UsersService,
     @Inject(FIREBASE_MESSAGING) private readonly firebaseMessaging: Messaging,
   ) { }
 
   async create(dto: CreateNotificationDto): Promise<void> {
-    const { recipients, sender, ...notificationData } = dto;
+    const { recipients, sender, type, entityId, onModel } = dto;
 
     // Filter out the sender to prevent self-notification
     const finalRecipients = recipients.filter((r) => r !== sender);
@@ -34,17 +73,18 @@ export class NotificationsService {
       return;
     }
 
-    const notificationsToCreate = finalRecipients.map((recipientId) => ({
-      recipient: recipientId,
-      sender,
-      ...notificationData,
-    }));
+    const entityFields = entityFieldsFor(entityId, onModel);
 
-    const createdNotifications = await this.notificationModel.insertMany(
-      notificationsToCreate,
-    );
+    const createdNotifications = await this.prisma.notification.createManyAndReturn({
+      data: finalRecipients.map((recipientId) => ({
+        recipientId,
+        senderId: sender,
+        type,
+        ...entityFields,
+      })),
+    });
 
-    // Publish events and send push notifications for each created document
+    // Publish events and send push notifications for each created row
     for (const notification of createdNotifications) {
       this.pubSub.publish('NOTIFICATION_ADDED', {
         notificationAdded: notification,
@@ -58,102 +98,74 @@ export class NotificationsService {
     paginationArgs: PaginationArgs,
   ): Promise<NotificationDocument[]> {
     const { skip, limit } = paginationArgs;
-    return this.notificationModel
-      .find({ recipient: userId })
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit)
-      .populate('sender') // Eagerly load sender details
-      .exec();
+    return this.prisma.notification.findMany({
+      where: { recipientId: userId },
+      orderBy: { createdAt: 'desc' },
+      skip,
+      take: limit,
+    });
   }
 
   async markAsRead(
     notificationIds: string[],
     userId: string,
   ): Promise<boolean> {
-    const result = await this.notificationModel.updateMany(
-      { _id: { $in: notificationIds }, recipient: userId }, // Security check: user must be the recipient
-      { $set: { read: true } },
-    );
-    return result.modifiedCount > 0;
+    const result = await this.prisma.notification.updateMany({
+      where: { id: { in: notificationIds }, recipientId: userId }, // Security check: user must be the recipient
+      data: { read: true },
+    });
+    return result.count > 0;
   }
 
   async countUnread(userId: string): Promise<number> {
-    return this.notificationModel.countDocuments({ recipient: userId, read: false }).exec();
+    return this.prisma.notification.count({
+      where: { recipientId: userId, read: false },
+    });
   }
 
   async adminFindAll(
     args: GetAdminNotificationsArgs,
   ): Promise<NotificationDocument[]> {
     const { skip, limit, recipientId, senderId, type, read } = args;
-    const filters: FilterQuery<NotificationDocument> = {};
 
-    if (recipientId) {
-      filters.recipient = recipientId;
-    }
-
-    if (senderId) {
-      filters.sender = senderId;
-    }
-
-    if (type) {
-      filters.type = type;
-    }
-
-    if (typeof read === 'boolean') {
-      filters.read = read;
-    }
-
-    return this.notificationModel
-      .find(filters)
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit)
-      .populate('sender')
-      .populate('recipient')
-      .exec();
+    return this.prisma.notification.findMany({
+      where: {
+        ...(recipientId && { recipientId }),
+        ...(senderId && { senderId }),
+        ...(type && { type }),
+        ...(typeof read === 'boolean' && { read }),
+      },
+      orderBy: { createdAt: 'desc' },
+      skip,
+      take: limit,
+    });
   }
 
   async adminCountUnread(recipientId?: string): Promise<number> {
-    const filters: FilterQuery<NotificationDocument> = { read: false };
-    if (recipientId) {
-      filters.recipient = recipientId;
-    }
-    return this.notificationModel.countDocuments(filters).exec();
+    return this.prisma.notification.count({
+      where: { read: false, ...(recipientId && { recipientId }) },
+    });
   }
 
-  // We accept a partial document here because the object from insertMany is not fully populated.
-  // The `recipient` and `sender` will be string IDs.
   private async sendPushNotification(
-    notification: Omit<
-      Partial<
-        Pick<NotificationDocument, 'recipient' | 'sender' | 'type' | 'entityId'>
-      >,
-      'recipient' | 'sender'
-    > & {
-      recipient: string;
-      sender: string;
-      type: NotificationDocument['type']; // Ensure type is required
-    },
+    notification: NotificationDocument,
   ): Promise<void> {
     try {
-      const recipient = await this.userModel
-        .findById(notification.recipient)
-        .select('fcmTokens')
-        .lean();
+      const recipient = await this.usersService.findById(notification.recipientId);
       if (
         !recipient ||
         !recipient.fcmTokens ||
         recipient.fcmTokens.length === 0
       ) {
-        console.log(`No FCM tokens found for user ${notification.recipient}`);
+        console.log(`No FCM tokens found for user ${notification.recipientId}`);
         return;
       }
 
       // We need the sender's details to build the message
-      const sender = await this.userModel.findById(notification.sender).lean();
+      const sender = await this.usersService.findById(notification.senderId);
       if (!sender) return;
 
+      const entityId = resolveEntityId(notification);
       const message = this.getNotificationMessage(
         notification,
         sender as UserDocument,
@@ -169,9 +181,9 @@ export class NotificationsService {
           title: 'PMS-Connect',
           body: message,
           type: notification.type,
-          entityId: notification.entityId?.toString() || '',
-          senderId: notification.sender.toString(),
-          url: this.getNotificationUrl(notification),
+          entityId: entityId || '',
+          senderId: notification.senderId,
+          url: this.getNotificationUrl(notification, entityId),
         },
         // Android specific config (High priority for data delivery)
         android: {
@@ -213,10 +225,15 @@ export class NotificationsService {
         });
 
         if (tokensToRemove.length > 0) {
-          console.log(`Removing ${tokensToRemove.length} invalid tokens for user ${notification.recipient}`);
-          await this.userModel.updateOne(
-            { _id: notification.recipient },
-            { $pull: { fcmTokens: { $in: tokensToRemove } } }
+          console.log(`Removing ${tokensToRemove.length} invalid tokens for user ${notification.recipientId}`);
+          await Promise.all(
+            tokensToRemove.map((token) =>
+              this.usersService.manageFcmToken(
+                notification.recipientId,
+                token,
+                'remove',
+              ),
+            ),
           );
         }
       }
@@ -286,16 +303,17 @@ export class NotificationsService {
   }
 
   private getNotificationUrl(
-    notification: Pick<NotificationDocument, 'type'> & { entityId?: any; sender?: any },
+    notification: Pick<NotificationDocument, 'type'>,
+    entityId: string | null,
   ): string {
     switch (notification.type) {
       case 'POST_LIKE':
       case 'POST_COMMENT':
-        return `/post/${notification.entityId}`;
+        return `/post/${entityId}`;
       case 'NEW_FOLLOWER':
       case 'CONNECTION_REQUEST':
       case 'CONNECTION_ACCEPTED':
-        // Ideally redirect to profile, but might need slug. 
+        // Ideally redirect to profile, but might need slug.
         // fallback to notifications page or use ID if frontend handles it
         return `/notifications`;
       default:

@@ -1,5 +1,5 @@
 import { ArgsType, Field, ID } from '@nestjs/graphql';
-import { IsEnum, IsMongoId, IsOptional } from 'class-validator';
+import { IsEnum, IsString, IsOptional } from 'class-validator';
 import { PaginationArgs } from '../../posts/dto/pagination.args';
 import { ConnectionRequestStatus } from '../schemas/connection-request.schema';
 
@@ -7,12 +7,12 @@ import { ConnectionRequestStatus } from '../schemas/connection-request.schema';
 export class GetConnectionRequestsArgs extends PaginationArgs {
   @Field(() => ID, { nullable: true })
   @IsOptional()
-  @IsMongoId()
+  @IsString()
   requesterId?: string;
 
   @Field(() => ID, { nullable: true })
   @IsOptional()
-  @IsMongoId()
+  @IsString()
   recipientId?: string;
 
   @Field(() => ConnectionRequestStatus, { nullable: true })

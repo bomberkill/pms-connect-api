@@ -6,6 +6,7 @@ import {
   Query,
   Args,
   ID,
+  Int,
   Subscription,
 } from '@nestjs/graphql';
 import { Inject, UseGuards } from '@nestjs/common';
@@ -94,7 +95,7 @@ export class CommentsResolver {
     @CurrentUser() user: UserDocument,
   ): Promise<CommentDocument> {
     return this.commentsService.addComment(
-      user._id.toString(),
+      user.id,
       createCommentInput,
     );
   }
@@ -105,7 +106,7 @@ export class CommentsResolver {
     @Args('commentId', { type: () => ID }) commentId: string,
     @CurrentUser() user: UserDocument,
   ): Promise<boolean> {
-    return this.commentsService.removeComment(commentId, user._id.toString());
+    return this.commentsService.removeComment(commentId, user.id);
   }
 
   @UseGuards(AdminAuthGuard)
@@ -145,18 +146,26 @@ export class CommentsResolver {
     @Parent() comment: CommentDocument,
     @Dataloader(UserLoader) userLoader: UserLoader,
   ): Promise<UserDocument> {
-    return userLoader.load(comment.author.toString());
+    return userLoader.load(comment.authorId);
   }
 
   /**
    * Résout le champ 'post' pour un commentaire.
    */
+  // Prisma's Comment column is `repliesCount` (renamed during the SQL
+  // migration to disambiguate from Post.commentsCount); the GraphQL field
+  // stays `commentsCount` to avoid a frontend-facing schema break.
+  @ResolveField('commentsCount', () => Int)
+  resolveCommentsCount(@Parent() comment: CommentDocument): number {
+    return comment.repliesCount;
+  }
+
   @ResolveField('post', () => Post)
   async getPost(
     @Parent() comment: CommentDocument,
     @Dataloader(PostLoader) postLoader: PostLoader,
   ): Promise<PostDocument> {
-    return postLoader.load(comment.post.toString());
+    return postLoader.load(comment.postId);
   }
 
   @ResolveField('parent', () => Comment, { nullable: true })
@@ -164,10 +173,10 @@ export class CommentsResolver {
     @Parent() comment: CommentDocument,
     @Dataloader(CommentLoader) commentLoader: CommentLoader,
   ): Promise<CommentDocument | null> {
-    if (!comment.parent) {
+    if (!comment.parentId) {
       return null;
     }
-    return commentLoader.load(comment.parent.toString());
+    return commentLoader.load(comment.parentId);
   }
 
   /**
@@ -185,9 +194,9 @@ export class CommentsResolver {
       return null;
     }
     const key: LikeLoaderKey = {
-      likeableId: comment._id.toString(),
+      likeableId: comment.id,
       likeableType: 'Comment',
-      userId: user._id.toString(),
+      userId: user.id,
     };
     return likeLoader.load(key);
   }
@@ -202,8 +211,8 @@ export class CommentsResolver {
       return null;
     }
     return bookmarkLoader.load({
-      userId: user._id.toString(),
-      itemId: comment._id.toString(),
+      userId: user.id,
+      itemId: comment.id,
     });
   }
 }

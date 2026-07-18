@@ -4,26 +4,20 @@ import {
   ForbiddenException,
   BadRequestException,
 } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model, FilterQuery } from 'mongoose';
 import slugify from 'slugify';
 import { randomBytes } from 'crypto';
-import {
-  Group,
-  GroupDocument,
-  GroupMemberRole,
-  GroupPrivacy,
-} from './schemas/group.schema';
-import {
-  GroupJoinRequest,
-  GroupJoinRequestDocument,
-} from './schemas/group-join-request.schema';
+import { PrismaService } from '../prisma/prisma.service';
+import { GroupMemberRole, GroupPrivacy } from '../../generated/prisma/enums';
+import type { GroupModel } from '../../generated/prisma/models';
+import type { Prisma } from '../../generated/prisma/client';
 import { CreateGroupInput } from './dto/create-group.input';
 import { GetGroupsArgs } from './dto/get-groups.args';
 import { UpdateGroupInput } from './dto/update-group.input';
 import { UserDocument } from '../users/schemas/users.schema';
-import { GroupMembershipService } from './group-membership.service';
-import { GroupMembershipDocument } from './schemas/group-membership.schema';
+import {
+  GroupMembershipService,
+  PopulatedGroupMembership,
+} from './group-membership.service';
 import {
   CurrentUserType,
   isAdminUser,
@@ -32,36 +26,28 @@ import {
 @Injectable()
 export class GroupsService {
   constructor(
-    @InjectModel(Group.name) private groupModel: Model<GroupDocument>,
-    @InjectModel(GroupJoinRequest.name)
-    private joinRequestModel: Model<GroupJoinRequestDocument>,
+    private readonly prisma: PrismaService,
     private readonly membershipService: GroupMembershipService,
   ) {}
 
   async create(
     createGroupInput: CreateGroupInput,
     creator: UserDocument,
-  ): Promise<GroupDocument> {
+  ): Promise<GroupModel> {
     const { name, description, privacy } = createGroupInput;
 
     // 1. Generate a unique slug
     const slug = await this._generateUniqueSlug(name);
 
-    // 2. Create the new group document (without members array)
-    const newGroup = new this.groupModel({
-      name,
-      slug,
-      description,
-      privacy,
-      creator: creator._id,
+    // 2. Create the new group (without members)
+    const savedGroup = await this.prisma.group.create({
+      data: { name, slug, description, privacy, creatorId: creator.id },
     });
-
-    const savedGroup = await newGroup.save();
 
     // 3. Add the creator as the first member with ADMIN role using GroupMembershipService
     await this.membershipService.addMember(
-      savedGroup._id.toString(),
-      creator._id.toString(),
+      savedGroup.id,
+      creator.id,
       GroupMemberRole.ADMIN,
     );
 
@@ -73,10 +59,10 @@ export class GroupsService {
     let slug = baseSlug;
     let isUnique = false;
     while (!isUnique) {
-      const existingGroup = await this.groupModel
-        .findOne({ slug })
-        .select('_id')
-        .lean();
+      const existingGroup = await this.prisma.group.findUnique({
+        where: { slug },
+        select: { id: true },
+      });
       if (!existingGroup) isUnique = true;
       else slug = `${baseSlug}-${randomBytes(3).toString('hex')}`;
     }
@@ -85,24 +71,16 @@ export class GroupsService {
 
   /**
    * Finds a single group by its slug.
-   * It populates the creator and the user within each member.
-   * @param slug The unique slug of the group.
-   * @returns A group document or null.
    */
-  async findBySlug(slug: string): Promise<GroupDocument | null> {
-    // We use .populate() to replace the user IDs with the full user documents,
-    // which is crucial for the GraphQL resolver to return the complete GroupGQL object.
-    return this.groupModel.findOne({ slug }).exec();
+  async findBySlug(slug: string): Promise<GroupModel | null> {
+    return this.prisma.group.findUnique({ where: { slug } });
   }
 
   /**
    * Finds a single group by its ID.
-   * It populates the creator and the user within each member.
-   * @param id The ID of the group.
-   * @returns A group document or null.
    */
-  async findGroupById(id: string): Promise<GroupDocument | null> {
-    return this.groupModel.findById(id).exec();
+  async findGroupById(id: string): Promise<GroupModel | null> {
+    return this.prisma.group.findUnique({ where: { id } });
   }
 
   /**
@@ -115,22 +93,22 @@ export class GroupsService {
   async assertCanViewGroupContent(
     groupId: string,
     viewer: CurrentUserType | null | undefined,
-  ): Promise<GroupDocument> {
-    const group = await this.groupModel.findById(groupId);
+  ): Promise<GroupModel> {
+    const group = await this.prisma.group.findUnique({ where: { id: groupId } });
     if (!group) {
       throw new NotFoundException(`Group with ID "${groupId}" not found.`);
     }
     if (group.privacy === GroupPrivacy.PUBLIC || isAdminUser(viewer)) {
       return group;
     }
-    if (!viewer || !('_id' in viewer)) {
+    if (!viewer || !('id' in viewer)) {
       throw new ForbiddenException(
         'You must be a member of this group to view its content.',
       );
     }
     const isMember = await this.membershipService.isMember(
       groupId,
-      viewer._id.toString(),
+      viewer.id,
     );
     if (!isMember) {
       throw new ForbiddenException(
@@ -142,17 +120,14 @@ export class GroupsService {
 
   /**
    * Updates a group's details.
-   * @param groupId The ID of the group to update.
-   * @param updateGroupInput The new data for the group.
-   * @returns The updated group document.
    */
   async update(
     groupId: string,
     currentUserId: string,
     updateGroupInput: UpdateGroupInput,
-  ): Promise<GroupDocument> {
+  ): Promise<GroupModel> {
     // 1. Fetch the group first to check permissions
-    const group = await this.groupModel.findById(groupId);
+    const group = await this.prisma.group.findUnique({ where: { id: groupId } });
     if (!group) {
       throw new NotFoundException(`Group with ID "${groupId}" not found.`);
     }
@@ -169,9 +144,7 @@ export class GroupsService {
       );
     }
 
-    const updatePayload: Partial<UpdateGroupInput> & { slug?: string } = {
-      ...updateGroupInput,
-    };
+    const updatePayload: Prisma.GroupUpdateInput = { ...updateGroupInput };
     // If name is changing, regenerate the slug
     if (updateGroupInput.name) {
       updatePayload.slug = await this._generateUniqueSlug(
@@ -179,29 +152,22 @@ export class GroupsService {
       );
     }
 
-    const updatedGroup = await this.groupModel
-      .findByIdAndUpdate(groupId, { $set: updatePayload }, { new: true })
-      .exec();
-
-    if (!updatedGroup) {
-      throw new NotFoundException(`Group with ID "${groupId}" not found.`);
-    }
-
-    return updatedGroup;
+    return this.prisma.group.update({
+      where: { id: groupId },
+      data: updatePayload,
+    });
   }
 
   async adminUpdate(
     groupId: string,
     updateGroupInput: UpdateGroupInput,
-  ): Promise<GroupDocument> {
-    const group = await this.groupModel.findById(groupId);
+  ): Promise<GroupModel> {
+    const group = await this.prisma.group.findUnique({ where: { id: groupId } });
     if (!group) {
       throw new NotFoundException(`Group with ID "${groupId}" not found.`);
     }
 
-    const updatePayload: Partial<UpdateGroupInput> & { slug?: string } = {
-      ...updateGroupInput,
-    };
+    const updatePayload: Prisma.GroupUpdateInput = { ...updateGroupInput };
 
     if (updateGroupInput.name) {
       updatePayload.slug = await this._generateUniqueSlug(
@@ -209,29 +175,21 @@ export class GroupsService {
       );
     }
 
-    const updatedGroup = await this.groupModel
-      .findByIdAndUpdate(groupId, { $set: updatePayload }, { new: true })
-      .exec();
-
-    if (!updatedGroup) {
-      throw new NotFoundException(`Group with ID "${groupId}" not found.`);
-    }
-
-    return updatedGroup;
+    return this.prisma.group.update({
+      where: { id: groupId },
+      data: updatePayload,
+    });
   }
 
   /**
    * Adds a member to a group using GroupMembershipService.
-   * @param groupId The ID of the group.
-   * @param userIdToAdd The ID of the user to add.
-   * @returns The updated group document.
    */
   async addMember(
     groupId: string,
     userIdToAdd: string,
-  ): Promise<GroupDocument> {
+  ): Promise<GroupModel> {
     // Verify group exists
-    const group = await this.groupModel.findById(groupId);
+    const group = await this.prisma.group.findUnique({ where: { id: groupId } });
     if (!group) {
       throw new NotFoundException(`Group with ID "${groupId}" not found.`);
     }
@@ -248,17 +206,13 @@ export class GroupsService {
 
   /**
    * Removes a member from a group using GroupMembershipService.
-   * @param groupId The ID of the group.
-   * @param userIdToRemove The ID of the user to remove.
-   * @param currentUserId The ID of the user performing the action.
-   * @returns The updated group document.
    */
   async removeMember(
     groupId: string,
     currentUserId: string,
     userIdToRemove?: string,
-  ): Promise<GroupDocument> {
-    const group = await this.groupModel.findById(groupId);
+  ): Promise<GroupModel> {
+    const group = await this.prisma.group.findUnique({ where: { id: groupId } });
     if (!group) {
       throw new NotFoundException(`Group with ID "${groupId}" not found.`);
     }
@@ -304,7 +258,7 @@ export class GroupsService {
       // Specific rule: Only the creator can remove an admin
       if (
         memberToRemove.role === GroupMemberRole.ADMIN &&
-        group.creator.toString() !== currentUserId
+        group.creatorId !== currentUserId
       ) {
         throw new ForbiddenException(
           'Only the group creator can remove an administrator.',
@@ -313,7 +267,7 @@ export class GroupsService {
     }
     // A user is trying to leave the group
     else {
-      if (group.creator.toString() === currentUserId) {
+      if (group.creatorId === currentUserId) {
         throw new ForbiddenException(
           'The creator cannot leave the group. You must delete it instead.',
         );
@@ -321,7 +275,7 @@ export class GroupsService {
     }
 
     // The creator can never be removed from the group by anyone.
-    if (group.creator.toString() === finalUserIdToRemove) {
+    if (group.creatorId === finalUserIdToRemove) {
       throw new BadRequestException('The group creator cannot be removed.');
     }
 
@@ -336,8 +290,8 @@ export class GroupsService {
     currentUserId: string,
     userIdToUpdate: string,
     newRole: GroupMemberRole,
-  ): Promise<GroupMembershipDocument> {
-    const group = await this.groupModel.findById(groupId);
+  ): Promise<PopulatedGroupMembership> {
+    const group = await this.prisma.group.findUnique({ where: { id: groupId } });
     if (!group) {
       throw new NotFoundException(`Group with ID "${groupId}" not found.`);
     }
@@ -352,7 +306,7 @@ export class GroupsService {
       );
     }
 
-    if (group.creator.toString() === userIdToUpdate) {
+    if (group.creatorId === userIdToUpdate) {
       throw new BadRequestException(
         'The group creator role cannot be changed.',
       );
@@ -376,13 +330,13 @@ export class GroupsService {
   async adminRemoveMember(
     groupId: string,
     userIdToRemove: string,
-  ): Promise<GroupDocument> {
-    const group = await this.groupModel.findById(groupId);
+  ): Promise<GroupModel> {
+    const group = await this.prisma.group.findUnique({ where: { id: groupId } });
     if (!group) {
       throw new NotFoundException(`Group with ID "${groupId}" not found.`);
     }
 
-    if (group.creator.toString() === userIdToRemove) {
+    if (group.creatorId === userIdToRemove) {
       throw new BadRequestException('The group creator cannot be removed.');
     }
 
@@ -403,13 +357,13 @@ export class GroupsService {
     groupId: string,
     userIdToUpdate: string,
     newRole: GroupMemberRole,
-  ): Promise<GroupMembershipDocument> {
-    const group = await this.groupModel.findById(groupId);
+  ): Promise<PopulatedGroupMembership> {
+    const group = await this.prisma.group.findUnique({ where: { id: groupId } });
     if (!group) {
       throw new NotFoundException(`Group with ID "${groupId}" not found.`);
     }
 
-    if (group.creator.toString() === userIdToUpdate) {
+    if (group.creatorId === userIdToUpdate) {
       throw new BadRequestException(
         'The group creator role cannot be changed.',
       );
@@ -431,75 +385,69 @@ export class GroupsService {
   }
 
   async delete(groupId: string, currentUserId: string): Promise<boolean> {
-    const group = await this.groupModel.findById(groupId);
+    const group = await this.prisma.group.findUnique({ where: { id: groupId } });
     if (!group) {
       throw new NotFoundException(`Group with ID "${groupId}" not found.`);
     }
 
-    if (group.creator.toString() !== currentUserId) {
+    if (group.creatorId !== currentUserId) {
       throw new ForbiddenException('Only the group creator can delete this group.');
     }
 
-    await this.membershipService.removeAllMembers(groupId);
-    await this.joinRequestModel.deleteMany({ group: groupId });
-    await this.groupModel.deleteOne({ _id: groupId });
+    // Membership/join-requests/posts cascade-delete via the Group FK's
+    // onDelete: Cascade — a single delete is enough now.
+    await this.prisma.group.delete({ where: { id: groupId } });
 
     return true;
   }
 
   async adminDelete(groupId: string): Promise<boolean> {
-    const group = await this.groupModel.findById(groupId);
+    const group = await this.prisma.group.findUnique({ where: { id: groupId } });
     if (!group) {
       throw new NotFoundException(`Group with ID "${groupId}" not found.`);
     }
 
-    await this.membershipService.removeAllMembers(groupId);
-    await this.joinRequestModel.deleteMany({ group: groupId });
-    await this.groupModel.deleteOne({ _id: groupId });
+    await this.prisma.group.delete({ where: { id: groupId } });
 
     return true;
   }
 
   /**
    * Finds all groups with pagination and filtering.
-   * @param args Pagination and filter arguments.
-   * @returns A list of group documents.
    */
   async findAll(
     args: GetGroupsArgs,
     viewer?: CurrentUserType | null,
-  ): Promise<GroupDocument[]> {
+  ): Promise<GroupModel[]> {
     const { skip, limit, search, privacy } = args;
-    const filters: FilterQuery<GroupDocument> = {};
+    const where: Prisma.GroupWhereInput = {};
 
     if (search) {
-      filters.name = { $regex: search, $options: 'i' };
+      where.name = { contains: search, mode: 'insensitive' };
     }
 
     if (privacy) {
-      filters.privacy = privacy;
+      where.privacy = privacy;
     }
 
     // SECRET groups are discoverable only by their members (or an admin) —
     // exclude them from the general listing for everyone else.
     if (!isAdminUser(viewer)) {
       const memberGroupIds =
-        viewer && '_id' in viewer
-          ? await this.membershipService.getUserGroupIds(
-              viewer._id.toString(),
-            )
+        viewer && 'id' in viewer
+          ? await this.membershipService.getUserGroupIds(viewer.id)
           : [];
-      filters.$or = [
-        { privacy: { $ne: GroupPrivacy.SECRET } },
-        { _id: { $in: memberGroupIds } },
+      where.OR = [
+        { privacy: { not: GroupPrivacy.SECRET } },
+        { id: { in: memberGroupIds } },
       ];
     }
 
-    return this.groupModel
-      .find(filters)
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit)
-      .exec();
+    return this.prisma.group.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      skip,
+      take: limit,
+    });
   }
 }

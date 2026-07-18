@@ -24,6 +24,8 @@ import { PubSub } from 'graphql-subscriptions';
 import { PUB_SUB } from '../pubsub/pubsub.module';
 import { User } from '../users/models/users.model';
 import { GetAdminNotificationsArgs } from './dto/get-admin-notifications.args';
+import { Dataloader } from '../dataloader/dataloader.decorator';
+import { UserLoader } from '../users/loaders/users.loader';
 
 @Resolver(() => Notification)
 export class NotificationsResolver {
@@ -39,7 +41,7 @@ export class NotificationsResolver {
     @Args() paginationArgs: PaginationArgs,
   ): Promise<Notification[]> {
     const notifications = await this.notificationsService.findForUser(
-      user._id.toString(),
+      user.id,
       paginationArgs,
     );
     return notifications as unknown as Notification[];
@@ -53,14 +55,14 @@ export class NotificationsResolver {
   ): Promise<boolean> {
     return this.notificationsService.markAsRead(
       notificationIds,
-      user._id.toString(),
+      user.id,
     );
   }
 
   @UseGuards(CombinedAuthGuard)
   @Query(() => Number, { name: 'unreadNotificationsCount' })
   async unreadNotificationsCount(@CurrentUser() user: UserDocument): Promise<number> {
-    return this.notificationsService.countUnread(user._id.toString());
+    return this.notificationsService.countUnread(user.id);
   }
 
   @UseGuards(AdminAuthGuard)
@@ -85,9 +87,9 @@ export class NotificationsResolver {
   @Subscription(() => Notification, {
     name: 'notificationAdded',
     filter: (payload, variables, context) => {
-      const currentUserId = context.user?._id.toString();
+      const currentUserId = context.user?.id;
       // Only send the notification to the user it is intended for.
-      return payload.notificationAdded.recipient.toString() === currentUserId;
+      return payload.notificationAdded.recipientId === currentUserId;
     },
     resolve: (payload) => payload.notificationAdded,
   })
@@ -101,16 +103,18 @@ export class NotificationsResolver {
   // --- Field Resolvers ---
 
   @ResolveField('message', () => String)
-  message(@Parent() notification: NotificationDocument): string {
-    const sender = notification.sender as UserDocument;
+  async message(
+    @Parent() notification: NotificationDocument,
+    @Dataloader(UserLoader) userLoader: UserLoader,
+  ): Promise<string> {
+    const sender = await userLoader.load(notification.senderId);
     let senderName = 'Someone';
 
     if (sender) {
-      // Check the discriminator key to safely access properties
-      if (sender.get('userType') === 'INDIVIDUAL') {
-        senderName = `${(sender as any).firstName} ${(sender as any).lastName}`;
-      } else if (sender.get('userType') === 'LEGAL_ENTITY') {
-        senderName = (sender as any).entityName;
+      if (sender.userType === 'INDIVIDUAL') {
+        senderName = `${sender.firstName} ${sender.lastName}`;
+      } else if (sender.userType === 'LEGAL_ENTITY') {
+        senderName = sender.entityName;
       }
     }
 
@@ -127,12 +131,33 @@ export class NotificationsResolver {
   }
 
   @ResolveField('sender', () => User)
-  sender(@Parent() notification: NotificationDocument): UserDocument {
-    return notification.sender as UserDocument;
+  async sender(
+    @Parent() notification: NotificationDocument,
+    @Dataloader(UserLoader) userLoader: UserLoader,
+  ): Promise<UserDocument> {
+    return userLoader.load(notification.senderId);
   }
 
   @ResolveField('recipient', () => User)
-  recipient(@Parent() notification: NotificationDocument): UserDocument {
-    return notification.recipient as UserDocument;
+  async recipient(
+    @Parent() notification: NotificationDocument,
+    @Dataloader(UserLoader) userLoader: UserLoader,
+  ): Promise<UserDocument> {
+    return userLoader.load(notification.recipientId);
+  }
+
+  // The old Mongoose schema had a single loose entityId+onModel pair;
+  // Prisma models it as an exclusive arc (postId/commentId/groupId/
+  // targetUserId). This resolver derives the old single-entityId shape the
+  // GraphQL API already commits to, so no frontend/admin-panel change needed.
+  @ResolveField('entityId', () => ID, { nullable: true })
+  resolveEntityId(@Parent() notification: NotificationDocument): string | null {
+    return (
+      notification.postId ??
+      notification.commentId ??
+      notification.groupId ??
+      notification.targetUserId ??
+      null
+    );
   }
 }

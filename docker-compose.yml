@@ -8,20 +8,19 @@ services:
       - "${PORT}:${PORT}"
     env_file:
       - .env
-    # environment:
-      # - REDIS_HOST=redis
-      # Override Mongo URI to use local container if preferred, or keep Atlas from .env
-      # - MONGODB_URI=mongodb://mongo:27017/pmsconnectdb
     depends_on:
-      - mongo
+      - postgres
 
-  mongo:
-    image: mongo:6
-    container_name: nest-mongo
+  postgres:
+    image: postgres:16
+    container_name: nest-postgres
+    environment:
+      POSTGRES_PASSWORD: devpassword
+      POSTGRES_DB: pmsconnectdb
     ports:
-      - "27017:27017"
+      - "5432:5432"
     volumes:
-      - mongo-data:/data/db
+      - postgres-data:/var/lib/postgresql/data
 
 volumes:
-  mongo-data:
+  postgres-data:

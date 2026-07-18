@@ -21,7 +21,7 @@ export class LikesResolver {
     @Args('postId', { type: () => ID }) postId: string,
     @CurrentUser() user: UserDocument,
   ): Promise<boolean> {
-    return this.likesService.likeItem(postId, 'Post', user._id.toString());
+    return this.likesService.likeItem(postId, 'Post', user.id);
   }
 
   @UseGuards(BetterAuthGuard)
@@ -30,7 +30,7 @@ export class LikesResolver {
     @Args('postId', { type: () => ID }) postId: string,
     @CurrentUser() user: UserDocument,
   ): Promise<boolean> {
-    return this.likesService.unlikeItem(postId, 'Post', user._id.toString());
+    return this.likesService.unlikeItem(postId, 'Post', user.id);
   }
 
   @UseGuards(BetterAuthGuard)
@@ -42,7 +42,7 @@ export class LikesResolver {
     return this.likesService.likeItem(
       commentId,
       'Comment',
-      user._id.toString(),
+      user.id,
     );
   }
 
@@ -55,7 +55,7 @@ export class LikesResolver {
     return this.likesService.unlikeItem(
       commentId,
       'Comment',
-      user._id.toString(),
+      user.id,
     );
   }
 

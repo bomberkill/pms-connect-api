@@ -29,7 +29,7 @@ export class BookmarksResolver {
     itemType: BookmarkableType,
   ): Promise<boolean> {
     return this.bookmarksService.addBookmark(
-      user._id.toString(),
+      user.id,
       itemId,
       itemType,
     );
@@ -41,7 +41,7 @@ export class BookmarksResolver {
     @CurrentUser() user: UserDocument,
     @Args('itemId', { type: () => ID }) itemId: string,
   ): Promise<boolean> {
-    return this.bookmarksService.removeBookmark(user._id.toString(), itemId);
+    return this.bookmarksService.removeBookmark(user.id, itemId);
   }
 
   @UseGuards(BetterAuthGuard)
@@ -51,13 +51,13 @@ export class BookmarksResolver {
     @Args() paginationArgs: PaginationArgs,
   ): Promise<BookmarkDocument[]> {
     return this.bookmarksService.findUserBookmarks(
-      user._id.toString(),
+      user.id,
       paginationArgs,
     );
   }
 
   @ResolveField('item', () => BookmarkableItemUnion)
-  resolveItem(@Parent() bookmark: BookmarkDocument): any {
-    return bookmark.item;
+  resolveItem(@Parent() bookmark: any): any {
+    return bookmark.post ?? bookmark.comment;
   }
 }

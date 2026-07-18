@@ -1,5 +1,5 @@
 import { ArgsType, Field, ID } from '@nestjs/graphql';
-import { IsMongoId, IsOptional } from 'class-validator';
+import { IsString, IsOptional } from 'class-validator';
 import { PaginationArgs } from '../../posts/dto/pagination.args';
 import { GroupJoinRequestStatus } from '../schemas/group-join-request.schema';
 
@@ -7,7 +7,7 @@ import { GroupJoinRequestStatus } from '../schemas/group-join-request.schema';
 export class GetMyGroupJoinRequestsArgs extends PaginationArgs {
   @Field(() => ID, { nullable: true })
   @IsOptional()
-  @IsMongoId()
+  @IsString()
   groupId?: string;
 
   @Field(() => GroupJoinRequestStatus, { nullable: true })

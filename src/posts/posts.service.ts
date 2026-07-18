@@ -1,234 +1,212 @@
-import {
-  Injectable,
-  NotFoundException,
-  ForbiddenException,
-  Inject,
-} from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
-import { Date, Model } from 'mongoose';
-import { Post, PostDocument, PostStatus } from './schemas/posts.schema'; // Corrected path if needed
-import { Like, LikeDocument } from './schemas/likes.schema';
+import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { PrismaService } from '../prisma/prisma.service';
+import { PostStatus, MediaType } from '../../generated/prisma/enums';
+import type { Prisma } from '../../generated/prisma/client';
 import { CreatePostInput } from './dto/create-post.input';
 import { PaginationArgs } from './dto/pagination.args';
 import { UpdatePostInput } from './dto/update-post.input';
-import { NotificationsService } from '../notifications/notifications.service';
-import { PUB_SUB } from 'src/pubsub/pubsub.module';
-import { PubSub } from 'graphql-subscriptions';
 import { CommentsService } from './comments.service';
+
+// Media used to be an embedded Mongoose array (always present on every
+// fetched Post, no populate needed) — it's a separate Prisma table now, so
+// every query that returns a Post to a caller needs this to match the old
+// always-embedded behavior.
+const WITH_MEDIA = { media: true } as const;
 
 @Injectable()
 export class PostsService {
   constructor(
-    @InjectModel(Post.name) private postModel: Model<PostDocument>,
-    @InjectModel(Like.name) private likeModel: Model<LikeDocument>,
-    // Injection du service de notifications
-    private readonly notificationsService: NotificationsService,
+    private readonly prisma: PrismaService,
     private readonly commentsService: CommentsService,
-    @Inject(PUB_SUB) private readonly pubSub: PubSub,
   ) {}
 
-  // Note: For transactions to work, you must be connected to a MongoDB replica set.
+  async create(createPostInput: CreatePostInput, authorId: string) {
+    const { media, ...rest } = createPostInput;
+    const data: Prisma.PostUncheckedCreateInput = {
+      ...rest,
+      authorId,
+      // Validated against the ['IMAGE','VIDEO','DOCUMENT'] enum values by
+      // class-validator on the DTO; the field is just typed as `string`
+      // there, so it needs a cast to Prisma's literal MediaType union.
+      ...(media && {
+        media: {
+          create: media.map((m) => ({ ...m, type: m.type as MediaType })),
+        },
+      }),
+    };
+    return this.prisma.post.create({ data, include: WITH_MEDIA });
+  }
 
-  async create(
-    createPostInput: CreatePostInput,
-    authorId: string,
-  ): Promise<PostDocument> {
-    const newPost = new this.postModel({
-      ...createPostInput,
-      author: authorId,
+  async findManyByIds(ids: readonly string[]) {
+    return this.prisma.post.findMany({
+      where: { id: { in: [...ids] } },
+      include: WITH_MEDIA,
     });
-    return (await newPost.save()).populate('author');
   }
 
-  async findManyByIds(ids: readonly string[]): Promise<PostDocument[]> {
-    return this.postModel.find({ _id: { $in: ids } }).exec();
-  }
-
-  async findOne(id: string, includeArchived = false): Promise<PostDocument> {
-    const post = await this.postModel.findById(id).populate('author').exec();
+  async findOne(id: string, includeArchived = false) {
+    const post = await this.prisma.post.findUnique({
+      where: { id },
+      include: WITH_MEDIA,
+    });
     if (!post || (!includeArchived && post.status === PostStatus.ARCHIVED)) {
       throw new NotFoundException(`Post with ID "${id}" not found.`);
     }
     return post;
   }
 
-  async update(
-    id: string,
-    userId: string,
-    updatePostInput: UpdatePostInput,
-  ): Promise<PostDocument> {
-    const post = await this.postModel.findById(id);
-
+  async update(id: string, userId: string, updatePostInput: UpdatePostInput) {
+    const post = await this.prisma.post.findUnique({ where: { id } });
     if (!post) {
       throw new NotFoundException(`Post with ID "${id}" not found.`);
     }
-
-    if (post.author.toString() !== userId) {
+    if (post.authorId !== userId) {
       throw new ForbiddenException('You can only update your own posts.');
     }
 
-    // Mongoose ne met à jour que les champs fournis dans l'objet
-    Object.assign(post, updatePostInput);
-
-    const updatedPost = await post.save();
-
-    // On s'assure que l'auteur est toujours populé au retour
-    return updatedPost.populate('author');
+    return this.prisma.post.update({
+      where: { id },
+      data: updatePostInput,
+      include: WITH_MEDIA,
+    });
   }
 
   async remove(id: string, userId: string): Promise<boolean> {
-    const post = await this.postModel.findById(id);
-
+    const post = await this.prisma.post.findUnique({ where: { id } });
     if (!post) {
       throw new NotFoundException(`Post with ID "${id}" not found.`);
     }
-
-    // Autoriser la suppression uniquement si l'utilisateur est l'auteur du post.
-    // (On pourrait ajouter une logique pour les administrateurs ici)
-    if (post.author.toString() !== userId) {
+    if (post.authorId !== userId) {
       throw new ForbiddenException('You can only delete your own posts.');
     }
-
     return this.softDeletePost(id);
   }
 
   /**
    * Finds posts from a list of author IDs to build a feed.
-   * @param authorIds - An array of user IDs.
-   * @param paginationArgs - Skip and limit for pagination.
-   * @returns A paginated list of posts.
    */
   async findPostsByAuthors(
     authorIds: string[],
     paginationArgs: PaginationArgs,
     includeArchived = false,
-  ): Promise<PostDocument[]> {
+  ) {
     const { skip, limit } = paginationArgs;
-    return this.postModel
-      .find({
-        author: { $in: authorIds }, // Find posts where the author is in the provided list
+    return this.prisma.post.findMany({
+      where: {
+        authorId: { in: authorIds },
         ...(includeArchived ? {} : { status: PostStatus.PUBLISHED }),
-      })
-      .sort({ createdAt: -1 }) // Show newest posts first
-      .skip(skip)
-      .limit(limit)
-      .populate('author');
+      },
+      orderBy: { createdAt: 'desc' },
+      skip,
+      take: limit,
+      include: WITH_MEDIA,
+    });
   }
 
   /**
    * Finds the most popular authors based on likes received in the last 60 days.
-   * This uses a MongoDB aggregation pipeline.
-   * @param limit - The number of popular authors to return.
-   * @returns A list of the most popular author IDs.
    */
   async findPopularAuthors(limit = 20): Promise<string[]> {
     const sixtyDaysAgo = new Date();
     sixtyDaysAgo.setDate(sixtyDaysAgo.getDate() - 60);
 
-    const popularAuthors = await this.postModel.aggregate([
-      // 1. Match posts from the last 60 days
-      { $match: { createdAt: { $gte: sixtyDaysAgo } } },
-      // 2. Group by author and sum their total likes
-      { $group: { _id: '$author', totalLikes: { $sum: '$likesCount' } } },
-      // 3. Sort authors by the most likes
-      { $sort: { totalLikes: -1 } },
-      // 4. Take the top N authors
-      { $limit: limit },
-      // 5. We only need the author ID
-      { $project: { _id: 1 } },
-    ]);
+    const grouped = await this.prisma.post.groupBy({
+      by: ['authorId'],
+      where: { createdAt: { gte: sixtyDaysAgo } },
+      _sum: { likesCount: true },
+      orderBy: { _sum: { likesCount: 'desc' } },
+      take: limit,
+    });
 
-    // The result is an array of objects like [{ _id: '...' }], so we map to get an array of strings.
-    return popularAuthors.map((author) => author._id.toString());
+    return grouped.map((g) => g.authorId);
   }
 
   /**
    * Finds all posts on the platform, for general discovery.
-   * @param paginationArgs - Skip and limit for pagination.
-   * @returns A paginated list of all posts.
    */
-  async findAllPosts(
-    paginationArgs: PaginationArgs,
-    includeArchived = false,
-  ): Promise<PostDocument[]> {
+  async findAllPosts(paginationArgs: PaginationArgs, includeArchived = false) {
     const { skip, limit } = paginationArgs;
-    return this.postModel
-      .find(includeArchived ? {} : { status: PostStatus.PUBLISHED })
-      .sort({ createdAt: -1 }) // Show newest posts first
-      .skip(skip)
-      .limit(limit)
-      .populate('author');
+    return this.prisma.post.findMany({
+      where: includeArchived ? {} : { status: PostStatus.PUBLISHED },
+      orderBy: { createdAt: 'desc' },
+      skip,
+      take: limit,
+      include: WITH_MEDIA,
+    });
   }
 
   /**
-   * Counts new posts from a list of authors since a given post ID.
-   * @param authorIds - An array of user IDs.
-   * @param sincePostId - The ID of the last post seen by the user.
-   * @returns The number of new posts.
+   * Counts new posts from a list of authors since a given post was seen.
+   * Not currently called anywhere (commented out in the resolver) — kept
+   * for parity, but now anchors on the reference post's createdAt rather
+   * than a `_id > sincePostId` cursor: unlike Mongo ObjectIds, Prisma's
+   * cuid ids aren't guaranteed to sort chronologically.
    */
   async countNewPostsByAuthors(
     authorIds: string[],
     sincePostId: string,
   ): Promise<number> {
-    return this.postModel.countDocuments({
-      author: { $in: authorIds },
-      _id: { $gt: sincePostId }, // Efficiently checks for newer documents
-      status: PostStatus.PUBLISHED,
+    const sincePost = await this.prisma.post.findUnique({
+      where: { id: sincePostId },
+      select: { createdAt: true },
+    });
+    if (!sincePost) return 0;
+    return this.prisma.post.count({
+      where: {
+        authorId: { in: authorIds },
+        createdAt: { gt: sincePost.createdAt },
+        status: PostStatus.PUBLISHED,
+      },
     });
   }
 
   /**
-   * Counts all new posts on the platform since a given post ID.
+   * Counts all new posts on the platform since a given date.
    */
   async countNewPosts(since: Date): Promise<number> {
-    return this.postModel.countDocuments({
-      createdAt: { $gt: since },
-      status: PostStatus.PUBLISHED,
+    return this.prisma.post.count({
+      where: { createdAt: { gt: since }, status: PostStatus.PUBLISHED },
     });
   }
+
   /**
    * Finds posts belonging to a specific group.
-   * @param groupId - The ID of the group.
-   * @param paginationArgs - Skip and limit for pagination.
-   * @returns A paginated list of posts in the group.
    */
-  async findPostsByGroup(
-    groupId: string,
-    paginationArgs: PaginationArgs,
-  ): Promise<PostDocument[]> {
+  async findPostsByGroup(groupId: string, paginationArgs: PaginationArgs) {
     const { skip, limit } = paginationArgs;
-    return this.postModel
-      .find({ group: groupId })
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit)
-      .populate('author');
+    return this.prisma.post.findMany({
+      where: { groupId },
+      orderBy: { createdAt: 'desc' },
+      skip,
+      take: limit,
+      include: WITH_MEDIA,
+    });
   }
 
   async removeAsAdmin(id: string): Promise<boolean> {
-    const post = await this.postModel.findById(id);
+    const post = await this.prisma.post.findUnique({ where: { id } });
     if (!post) {
       throw new NotFoundException(`Post with ID "${id}" not found.`);
     }
-
     return this.softDeletePost(id);
   }
 
   private async softDeletePost(id: string): Promise<boolean> {
-    await this.postModel.findByIdAndUpdate(id, {
-      $set: {
+    await this.prisma.post.update({
+      where: { id },
+      data: {
         status: PostStatus.ARCHIVED,
         content: '[This post has been deleted]',
       },
     });
 
-    const topLevelComments = await this.commentsService.findCommentsByPost(id, {
-      skip: 0,
-      limit: Number.MAX_SAFE_INTEGER,
-    });
+    const topLevelComments = await this.commentsService.findCommentsByPost(
+      id,
+      { skip: 0, limit: Number.MAX_SAFE_INTEGER },
+    );
 
     for (const comment of topLevelComments) {
-      await this.commentsService.removeCommentAsAdmin(comment._id.toString());
+      await this.commentsService.removeCommentAsAdmin(comment.id);
     }
 
     return true;

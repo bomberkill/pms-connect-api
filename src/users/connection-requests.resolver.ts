@@ -38,7 +38,7 @@ export class ConnectionRequestsResolver {
     @CurrentUser() currentUser: UserDocument,
   ): Promise<boolean> {
     await this.connectionRequestsService.sendConnectionRequest(
-      currentUser._id.toString(),
+      currentUser.id,
       recipientId,
     );
     return true;
@@ -52,7 +52,7 @@ export class ConnectionRequestsResolver {
   ): Promise<boolean> {
     await this.connectionRequestsService.acceptConnectionRequest(
       requestId,
-      currentUser._id.toString(),
+      currentUser.id,
     );
     return true;
   }
@@ -65,7 +65,7 @@ export class ConnectionRequestsResolver {
   ): Promise<boolean> {
     await this.connectionRequestsService.declineOrCancelConnectionRequest(
       requestId,
-      currentUser._id.toString(),
+      currentUser.id,
     );
     return true;
   }
@@ -82,7 +82,7 @@ export class ConnectionRequestsResolver {
     status?: ConnectionRequestStatus,
   ): Promise<ConnectionRequestDocument[]> {
     return this.connectionRequestsService.findConnectionRequestsForUser(
-      currentUser._id.toString(),
+      currentUser.id,
       status,
     );
   }
@@ -109,7 +109,7 @@ export class ConnectionRequestsResolver {
     nullable: true,
     filter: (payload, variables, context) => {
       // The context contains the user object attached by the guard
-      const currentUserId = context.user?._id?.toString();
+      const currentUserId = context.user?.id;
       if (!currentUserId) {
         console.log('currentUserId not found ', context.user);
         return false;

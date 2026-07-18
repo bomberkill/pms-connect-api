@@ -1,0 +1,6 @@
+allowBuilds:
+  '@apollo/protobufjs': true
+  '@firebase/util': true
+  '@nestjs/core': true
+  bcrypt: true
+  protobufjs: true

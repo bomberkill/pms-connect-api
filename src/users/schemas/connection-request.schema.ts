@@ -1,42 +1,14 @@
-import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Document, SchemaTypes } from 'mongoose';
-import { User } from './users.schema';
+// Thin compatibility shim — see users.schema.ts for rationale.
+// Every current query populates both requester and recipient (the old
+// Mongoose `.populate('requester recipient')` pattern), so the type
+// reflects that rather than Prisma's scalar-only default selection.
+import type {
+  ConnectionRequestModel,
+  UserModel,
+} from '../../../generated/prisma/models';
 
-export enum ConnectionRequestStatus {
-  PENDING = 'PENDING',
-  ACCEPTED = 'ACCEPTED',
-  DECLINED = 'DECLINED',
-  CANCELLED = 'CANCELLED',
-  TERMINATED = 'TERMINATED',
-}
-
-@Schema({ timestamps: true })
-export class ConnectionRequest extends Document {
-  @Prop({
-    type: SchemaTypes.ObjectId,
-    ref: 'User',
-    required: true,
-    index: true,
-  })
-  requester: User;
-
-  @Prop({
-    type: SchemaTypes.ObjectId,
-    ref: 'User',
-    required: true,
-    index: true,
-  })
-  recipient: User;
-
-  @Prop({
-    type: String,
-    enum: Object.values(ConnectionRequestStatus),
-    default: ConnectionRequestStatus.PENDING,
-    index: true,
-  })
-  status: ConnectionRequestStatus;
-}
-
-export const ConnectionRequestSchema =
-  SchemaFactory.createForClass(ConnectionRequest);
-export type ConnectionRequestDocument = ConnectionRequest & Document;
+export type ConnectionRequestDocument = ConnectionRequestModel & {
+  requester: UserModel;
+  recipient: UserModel;
+};
+export { ConnectionRequestStatus } from '../../../generated/prisma/enums';

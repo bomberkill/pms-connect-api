@@ -1,4 +1,4 @@
-import { Resolver, Query, Mutation, Args, ID } from '@nestjs/graphql';
+import { Resolver, Query, Mutation, Args, ID, ResolveField, Parent } from '@nestjs/graphql';
 import { AdminsService } from './admins.service';
 import { AdminUser } from './admin-user.model';
 import { CreateAdminUserInput } from './dto/create-admin-user.input';
@@ -54,4 +54,13 @@ export class AdminsResolver {
   }
 
   // Add deleteAdminUser mutation (soft or hard delete)
+
+  // AdminUserGQL._id predates the migration (most other GQL models use
+  // `id`); kept as an alias here rather than renaming the GraphQL field, to
+  // avoid an admin-panel-breaking schema change. Prisma's AdminUserModel
+  // only has `.id`.
+  @ResolveField('_id', () => ID)
+  resolveAdminId(@Parent() admin: AdminUserDocument): string {
+    return admin.id;
+  }
 }

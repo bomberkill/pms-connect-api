@@ -8,9 +8,7 @@ export class UserLoader extends DataLoader<string, UserDocument> {
   constructor(private readonly usersService: UsersService) {
     super(async (keys: readonly string[]) => {
       const users = await this.usersService.findManyByIds(keys as string[]);
-      const usersMap = new Map(
-        users.map((user) => [user._id.toString(), user]),
-      );
+      const usersMap = new Map(users.map((user) => [user.id, user]));
       return keys.map((key) => usersMap.get(key) || null);
     });
   }

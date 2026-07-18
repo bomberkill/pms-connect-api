@@ -1,61 +1,14 @@
-import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Document, SchemaTypes } from 'mongoose';
-import { User } from '../../users/schemas/users.schema';
+// Thin compatibility shim — see users/schemas/users.schema.ts for rationale.
+// Note the field rename: Mongoose had `author: string` (a de-refed ObjectId
+// ref); Prisma's real column is `authorId` (its FK-naming convention) — call
+// sites were updated to match rather than aliasing it back to `author`.
+export type { PostModel as PostDocument } from '../../../generated/prisma/models';
+export { PostStatus, MediaType } from '../../../generated/prisma/enums';
 
-export enum PostStatus {
-  PUBLISHED = 'PUBLISHED',
-  ARCHIVED = 'ARCHIVED',
-}
-
-@Schema({ _id: false })
+// MediaItem is now its own Prisma table (Media), not an embedded subdoc —
+// this GraphQL-facing shape is kept only for the input DTOs that still
+// accept { url, type } pairs.
 export class MediaItem {
-  @Prop({ required: true })
   url: string;
-
-  @Prop({ required: true, enum: ['IMAGE', 'VIDEO', 'DOCUMENT'] })
   type: string;
 }
-export const MediaItemSchema = SchemaFactory.createForClass(MediaItem);
-
-export type PostDocument = Post & Document;
-
-@Schema({ timestamps: true })
-export class Post {
-  @Prop({ required: true, trim: true })
-  content: string;
-
-  @Prop({ type: SchemaTypes.ObjectId, ref: 'User', required: true })
-  author: User;
-
-  @Prop({ type: Number, default: 0 })
-  likesCount: number;
-
-  @Prop({ type: Number, default: 0 })
-  commentsCount: number;
-
-  @Prop({ type: Number, default: 0 })
-  viewsCount: number;
-
-  @Prop({ type: Number, default: 0 })
-  sharesCount: number;
-
-  @Prop({ type: [MediaItemSchema], default: [] })
-  media: MediaItem[];
-
-  @Prop({ type: String, enum: PostStatus, default: PostStatus.PUBLISHED })
-  status: PostStatus;
-
-  // Add declarations for timestamp fields to satisfy TypeScript
-  readonly createdAt: Date;
-  readonly updatedAt: Date;
-
-  // Les likes, commentaires, etc., sont gérés dans des collections séparées pour la scalabilité.
-}
-
-export const PostSchema = SchemaFactory.createForClass(Post);
-
-// Critical indexes for scalability
-PostSchema.index({ createdAt: -1 }); // Feed queries sorted by date
-PostSchema.index({ author: 1, createdAt: -1 }); // User's posts timeline
-PostSchema.index({ group: 1, createdAt: -1 }); // Group posts (when group field added)
-PostSchema.index({ status: 1, createdAt: -1 }); // Published posts only

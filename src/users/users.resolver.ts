@@ -52,7 +52,7 @@ export class UsersResolver {
     // The service's create method returns a UserDocument.
     // GraphQL will automatically map the fields based on your @Field() decorators.
     // Pass the authUserId from the authenticated user to the service
-    if ('_id' in currentUser) {
+    if ('id' in currentUser) {
       throw new BadRequestException('User already exists');
     }
     return this.usersService.create(createUserInput, currentUser.authUserId);
@@ -111,7 +111,7 @@ export class UsersResolver {
     @CurrentUser() currentUser: UserDocument,
   ): Promise<UserDocument> {
     return this.usersService.update(
-      currentUser._id.toString(),
+      currentUser.id,
       updateUserInput,
     );
   }
@@ -160,7 +160,7 @@ export class UsersResolver {
     // a transient `{ authUserId }` shape when the Better Auth session is
     // valid but no Mongo profile exists yet — the `User` GraphQL interface
     // can't resolve a concrete type for that shape, so treat it as absent.
-    if (!user || !('_id' in user)) {
+    if (!user || !('id' in user)) {
       return null;
     }
     return user;
@@ -174,7 +174,7 @@ export class UsersResolver {
     @Args('userId', { type: () => ID }) userIdToFollow: string,
     @CurrentUser() currentUser: UserDocument,
   ): Promise<boolean> {
-    await this.usersService.follow(currentUser._id.toString(), userIdToFollow);
+    await this.usersService.follow(currentUser.id, userIdToFollow);
     return true;
   }
 
@@ -185,7 +185,7 @@ export class UsersResolver {
     @CurrentUser() currentUser: UserDocument,
   ): Promise<boolean> {
     await this.usersService.unfollow(
-      currentUser._id.toString(),
+      currentUser.id,
       userIdToUnfollow,
     );
     return true;
@@ -195,36 +195,36 @@ export class UsersResolver {
   @Query(() => [User], { name: 'getFollowers' })
   async getFollowers(
     @Args('userId', { type: () => ID }) userId: string,
-    @Args() { skip, limit }: PaginationArgs,
+    @Args() paginationArgs: PaginationArgs,
   ): Promise<UserDocument[]> {
-    return this.usersService.getFollowers(userId, skip, limit);
+    return this.followsService.getFollowers(userId, paginationArgs);
   }
 
   @UseGuards(AdminAuthGuard)
   @Query(() => [User], { name: 'adminGetFollowers' })
   async adminGetFollowers(
     @Args('userId', { type: () => ID }) userId: string,
-    @Args() { skip, limit }: PaginationArgs,
+    @Args() paginationArgs: PaginationArgs,
   ): Promise<UserDocument[]> {
-    return this.usersService.getFollowers(userId, skip, limit);
+    return this.followsService.getFollowers(userId, paginationArgs);
   }
 
   @UseGuards(BetterAuthGuard)
   @Query(() => [User], { name: 'getFollowing' })
   async getFollowing(
     @Args('userId', { type: () => ID }) userId: string,
-    @Args() { skip, limit }: PaginationArgs,
+    @Args() paginationArgs: PaginationArgs,
   ): Promise<UserDocument[]> {
-    return this.usersService.getFollowing(userId, skip, limit);
+    return this.followsService.getFollowing(userId, paginationArgs);
   }
 
   @UseGuards(AdminAuthGuard)
   @Query(() => [User], { name: 'adminGetFollowing' })
   async adminGetFollowing(
     @Args('userId', { type: () => ID }) userId: string,
-    @Args() { skip, limit }: PaginationArgs,
+    @Args() paginationArgs: PaginationArgs,
   ): Promise<UserDocument[]> {
-    return this.usersService.getFollowing(userId, skip, limit);
+    return this.followsService.getFollowing(userId, paginationArgs);
   }
 
   @UseGuards(BetterAuthGuard)
@@ -250,7 +250,7 @@ export class UsersResolver {
     @CurrentUser() currentUser: UserDocument,
   ): Promise<boolean> {
     await this.usersService.removeConnection(
-      currentUser._id.toString(),
+      currentUser.id,
       userIdB,
     );
     return true;
@@ -272,7 +272,7 @@ export class UsersResolver {
     @CurrentUser() currentUser: UserDocument,
   ): Promise<boolean> {
     return this.usersService.manageFcmToken(
-      currentUser._id.toString(),
+      currentUser.id,
       token,
       'add',
     );
@@ -285,7 +285,7 @@ export class UsersResolver {
     @CurrentUser() currentUser: UserDocument,
   ): Promise<boolean> {
     return this.usersService.manageFcmToken(
-      currentUser._id.toString(),
+      currentUser.id,
       token,
       'remove',
     );
@@ -300,7 +300,7 @@ export class UsersResolver {
       // client-supplied `userId` variable — otherwise any authenticated
       // user could subscribe with someone else's id and get a live feed
       // of that victim's follow/unfollow activity.
-      const currentUserId = context.user?._id?.toString();
+      const currentUserId = context.user?.id;
       if (!currentUserId) {
         return false;
       }
@@ -339,8 +339,8 @@ export class UsersResolver {
     viewer: CurrentUserType | null | undefined,
   ): boolean {
     if (isAdminUser(viewer)) return true;
-    if (viewer && '_id' in viewer) {
-      return viewer._id.toString() === target._id.toString();
+    if (viewer && 'id' in viewer) {
+      return viewer.id === target.id;
     }
     return false;
   }
@@ -370,13 +370,12 @@ export class UsersResolver {
   }
 
   @ResolveField('blockedUsers', () => [ID], { nullable: true })
-  resolveBlockedUsers(
+  async resolveBlockedUsers(
     @Parent() user: UserDocument,
     @CurrentUser() viewer: CurrentUserType,
-  ): string[] | null {
-    return this.canViewPrivateFields(user, viewer)
-      ? user.blockedUsers
-      : null;
+  ): Promise<string[] | null> {
+    if (!this.canViewPrivateFields(user, viewer)) return null;
+    return this.usersService.getBlockedUserIds(user.id);
   }
 
   @ResolveField('fcmTokens', () => [String], { nullable: true })

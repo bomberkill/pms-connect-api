@@ -1,8 +1,8 @@
 import { Module } from '@nestjs/common';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
-import { ConfigModule, ConfigService } from '@nestjs/config';
-import { MongooseModule } from '@nestjs/mongoose';
+import { ConfigModule } from '@nestjs/config';
+import { PrismaModule } from './prisma/prisma.module';
 import { GraphQLModule } from '@nestjs/graphql';
 import { ApolloDriver, ApolloDriverConfig } from '@nestjs/apollo';
 import { join } from 'path';
@@ -122,7 +122,7 @@ import { GqlThrottlerGuard } from './common/guards/gql-throttler.guard';
 
 query GetAllUsers {
   getAllUsers {
-    _id
+    id
     email
     slug
     firstName
@@ -185,14 +185,7 @@ query GetAllUsers {
         },
       }),
     }),
-    MongooseModule.forRootAsync({
-      imports: [ConfigModule],
-      useFactory: async (configService: ConfigService) => ({
-        uri: configService.get<string>('MONGODB_URI'),
-        dbName: 'pmsconnectdb',
-      }),
-      inject: [ConfigService],
-    }),
+    PrismaModule,
     UsersModule,
     AuthModule,
     FirebaseModule,
