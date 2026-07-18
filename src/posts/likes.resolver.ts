@@ -3,6 +3,7 @@ import { UseGuards, Inject } from '@nestjs/common';
 import { PubSub } from 'graphql-subscriptions';
 import { LikesService } from './likes.service';
 import { BetterAuthGuard } from '../auth/guards/better-auth.guard';
+import { GqlWsAuthGuard } from '../auth/guards/gql-ws-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { UserDocument } from '../users/schemas/users.schema';
 import { LikesUpdate } from './models/likes-update.model';
@@ -59,6 +60,7 @@ export class LikesResolver {
     );
   }
 
+  @UseGuards(GqlWsAuthGuard)
   @Subscription(() => LikesUpdate, {
     name: 'likesUpdated',
     filter: (payload, variables) =>
@@ -66,7 +68,6 @@ export class LikesResolver {
       payload.likesUpdated.likeableType === variables.likeableType,
     resolve: (payload) => payload.likesUpdated,
   })
-  // @UseGuards(BetterAuthGuard)
   likesUpdated(
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     @Args('likeableId', { type: () => ID }) _likeableId: string,

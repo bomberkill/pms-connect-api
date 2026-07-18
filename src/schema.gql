@@ -154,6 +154,11 @@ input CreateGroupInput {
 
 input CreatePostInput {
   content: String!
+
+  """
+  If set, publishes the post inside this group. The caller must be a member of the group.
+  """
+  groupId: ID
   media: [MediaItemInput]
 
   """Defaults to PUBLISHED if not provided."""
@@ -439,6 +444,7 @@ type Mutation {
   adminRemoveComment(commentId: ID!): Boolean!
   adminRemoveGroupMember(groupId: ID!, userId: ID!): Group!
   adminRemovePost(id: ID!): Boolean!
+  adminRemoveUser(id: ID!): Boolean!
   adminUpdateGroup(groupId: ID!, updateGroupInput: UpdateGroupInput!): Group!
   adminUpdateGroupMemberRole(groupId: ID!, updateGroupMemberRoleInput: UpdateGroupMemberRoleInput!): GroupMembership!
 
@@ -475,6 +481,7 @@ type Mutation {
 
   """Rejects a pending join request as a group admin or moderator."""
   rejectGroupJoinRequest(input: RespondToGroupJoinRequestInput!): Boolean!
+  removeAdminUser(id: ID!): Boolean!
   removeBookmark(itemId: ID!): Boolean!
   removeComment(commentId: ID!): Boolean!
   removeConnection(userIdB: ID!): Boolean!
@@ -482,6 +489,7 @@ type Mutation {
   """Allows an authorized member to remove another member."""
   removeGroupMember(groupId: ID!, userId: ID!): Group!
   removePost(id: ID!): Boolean!
+  removeUser: Boolean!
 
   """Initiates the password reset process for an admin."""
   requestAdminPasswordReset(requestAdminPasswordResetInput: RequestAdminPasswordResetInput!): Boolean!
@@ -737,7 +745,6 @@ type Query {
 
     """Number of items to skip"""
     skip: Int! = 0
-    userId: ID!
   ): [User!]!
   getFeed(
     """Number of items to return"""

@@ -19,6 +19,7 @@ import { PaginationArgs } from './dto/pagination.args';
 import {
   CurrentUser,
   CurrentUserType,
+  isAdminUser,
 } from '../auth/decorators/current-user.decorator';
 import { GroupsService } from '../groups/groups.service';
 import { UserDocument } from '../users/schemas/users.schema';
@@ -43,6 +44,12 @@ export class PostsResolver {
     @Args('createPostInput') createPostInput: CreatePostInput,
     @CurrentUser() user: UserDocument,
   ): Promise<PostDocument> {
+    if (createPostInput.groupId) {
+      await this.groupsService.assertCanPostInGroup(
+        createPostInput.groupId,
+        user.id,
+      );
+    }
     return this.postsService.create(createPostInput, user.id);
     // return postDocument as unknown as Post;
   }
@@ -51,8 +58,13 @@ export class PostsResolver {
   @Query(() => Post, { name: 'getPostById', nullable: true })
   async getPostById(
     @Args('id', { type: () => ID }) id: string,
+    @CurrentUser() currentUser: CurrentUserType,
   ): Promise<PostDocument> {
-    return this.postsService.findOne(id);
+    const post = await this.postsService.findOne(id);
+    if (post.groupId) {
+      await this.groupsService.assertCanViewGroupContent(post.groupId, currentUser);
+    }
+    return post;
     // return postDocument as unknown as Post;
   }
 
@@ -79,7 +91,7 @@ export class PostsResolver {
     if (followingIds.length === 0) {
       // APPROCHE ACTUELLE (pour une nouvelle application) :
       // On affiche tous les posts récents de la plateforme pour favoriser la découverte.
-      return this.postsService.findAllPosts(paginationArgs);
+      return this.postsService.findAllPosts(paginationArgs, false, user.id);
       // return allPosts as unknown as Post[];
 
       /*
@@ -93,7 +105,12 @@ export class PostsResolver {
     } else {
       // Sinon, on construit le fil d'actualité standard avec les posts des personnes suivies et ses propres posts.
       const authorIds = [...followingIds, user.id];
-      return this.postsService.findPostsByAuthors(authorIds, paginationArgs);
+      return this.postsService.findPostsByAuthors(
+        authorIds,
+        paginationArgs,
+        false,
+        user.id,
+      );
       // return posts as unknown as Post[];
     }
   }
@@ -121,8 +138,17 @@ export class PostsResolver {
   async getPostsByAuthor(
     @Args('authorId', { type: () => ID }) authorId: string,
     @Args() paginationArgs: PaginationArgs,
+    @CurrentUser() currentUser: CurrentUserType,
   ): Promise<PostDocument[]> {
-    return this.postsService.findPostsByAuthors([authorId], paginationArgs);
+    const isAdmin = isAdminUser(currentUser);
+    const viewerId = !isAdmin && 'id' in currentUser ? currentUser.id : undefined;
+    return this.postsService.findPostsByAuthors(
+      [authorId],
+      paginationArgs,
+      false,
+      viewerId,
+      isAdmin,
+    );
   }
 
   @UseGuards(CombinedAuthGuard)

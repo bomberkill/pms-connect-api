@@ -139,6 +139,17 @@ export class AdminsService {
     }
   }
 
-  // Implement soft delete or permanent delete as needed
-  // async delete(id: string): Promise<AdminUserDocument> { ... }
+  async remove(id: string): Promise<AdminUserDocument> {
+    try {
+      return await this.prisma.adminUser.update({
+        where: { id },
+        data: { isActive: false },
+      });
+    } catch (error) {
+      if (error.code === 'P2025') {
+        throw new NotFoundException(`Admin user with ID "${id}" not found.`);
+      }
+      throw error;
+    }
+  }
 }

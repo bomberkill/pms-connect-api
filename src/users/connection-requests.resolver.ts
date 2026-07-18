@@ -87,13 +87,20 @@ export class ConnectionRequestsResolver {
     );
   }
 
+  // Scoped to the caller only — an earlier version accepted an arbitrary
+  // `userId` arg, letting any authenticated user list any other user's
+  // accepted connections with no privacy check whatsoever.
   @UseGuards(BetterAuthGuard)
   @Query(() => [User], { name: 'getConnections' })
   async getConnections(
-    @Args('userId', { type: () => ID }) userId: string,
+    @CurrentUser() currentUser: UserDocument,
     @Args() { skip, limit }: PaginationArgs,
   ): Promise<UserDocument[]> {
-    return this.connectionRequestsService.getConnections(userId, skip, limit);
+    return this.connectionRequestsService.getConnections(
+      currentUser.id,
+      skip,
+      limit,
+    );
   }
 
   @UseGuards(AdminAuthGuard)

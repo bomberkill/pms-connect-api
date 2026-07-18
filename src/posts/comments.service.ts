@@ -193,4 +193,17 @@ export class CommentsService {
       include: WITH_MEDIA,
     });
   }
+
+  /**
+   * Lean lookup used to resolve a comment's parent post before checking
+   * group-content visibility (e.g. for getCommentReplies, which is only
+   * given a comment id).
+   */
+  async findPostIdForComment(commentId: string): Promise<string | null> {
+    const comment = await this.prisma.comment.findUnique({
+      where: { id: commentId },
+      select: { postId: true },
+    });
+    return comment?.postId ?? null;
+  }
 }

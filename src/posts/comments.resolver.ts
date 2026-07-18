@@ -32,17 +32,37 @@ import {
 } from 'src/auth/decorators/current-user.decorator';
 import { CombinedAuthGuard } from 'src/auth/guards/combined-auth.guard';
 import { AdminAuthGuard } from 'src/admin-auth/guards/admin-auth.guard';
+import { GqlWsAuthGuard } from 'src/auth/guards/gql-ws-auth.guard';
 import { PaginationArgs } from './dto/pagination.args';
 import { PUB_SUB } from 'src/pubsub/pubsub.module';
 import { BookmarkLoader } from 'src/bookmarks/loaders/bookmarks.loader';
 import { CommentsService } from './comments.service';
+import { PostsService } from './posts.service';
+import { GroupsService } from 'src/groups/groups.service';
 
 @Resolver(() => Comment)
 export class CommentsResolver {
   constructor(
     private readonly commentsService: CommentsService,
+    private readonly postsService: PostsService,
+    private readonly groupsService: GroupsService,
     @Inject(PUB_SUB) private readonly pubSub: PubSub,
   ) { }
+
+  /**
+   * Comments never carry a groupId themselves — visibility is inherited
+   * from their parent post's group, if any. No-op when the post isn't
+   * attached to a group.
+   */
+  private async assertPostGroupVisible(
+    postId: string,
+    currentUser: CurrentUserType,
+  ): Promise<void> {
+    const groupId = await this.postsService.findGroupIdForPost(postId);
+    if (groupId) {
+      await this.groupsService.assertCanViewGroupContent(groupId, currentUser);
+    }
+  }
 
   // --- Query ---
 
@@ -51,7 +71,9 @@ export class CommentsResolver {
   async getCommentsByPost(
     @Args('postId', { type: () => ID }) postId: string,
     @Args() paginationArgs: PaginationArgs,
+    @CurrentUser() currentUser: CurrentUserType,
   ): Promise<CommentDocument[]> {
+    await this.assertPostGroupVisible(postId, currentUser);
     return this.commentsService.findCommentsByPost(postId, paginationArgs);
   }
 
@@ -73,7 +95,12 @@ export class CommentsResolver {
   async getCommentReplies(
     @Args('parentId', { type: () => ID }) parentId: string,
     @Args() paginationArgs: PaginationArgs,
+    @CurrentUser() currentUser: CurrentUserType,
   ): Promise<CommentDocument[]> {
+    const postId = await this.commentsService.findPostIdForComment(parentId);
+    if (postId) {
+      await this.assertPostGroupVisible(postId, currentUser);
+    }
     return this.commentsService.findRepliesForComment(parentId, paginationArgs);
   }
 
@@ -83,7 +110,11 @@ export class CommentsResolver {
     @Args('id', { type: () => ID }) id: string,
     @CurrentUser() currentUser: CurrentUserType,
   ): Promise<CommentDocument | null> {
-    return this.commentsService.findOne(id, isAdminUser(currentUser));
+    const comment = await this.commentsService.findOne(id, isAdminUser(currentUser));
+    if (comment) {
+      await this.assertPostGroupVisible(comment.postId, currentUser);
+    }
+    return comment;
   }
 
   // --- Mutations ---
@@ -119,6 +150,7 @@ export class CommentsResolver {
 
   // --- Subscription ---
 
+  @UseGuards(GqlWsAuthGuard)
   @Subscription(() => String, {
     name: 'commentAdded',
     filter: (payload, variables) => {
@@ -129,7 +161,6 @@ export class CommentsResolver {
     },
     resolve: (payload) => payload.commentAdded, // On extrait le commentaire du payload
   })
-  // @UseGuards(BetterAuthGuard) // Protège l'accès à la subscription
   commentAdded(
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     @Args('postId', { type: () => ID }) _postId: string,

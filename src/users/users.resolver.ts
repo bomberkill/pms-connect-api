@@ -26,6 +26,7 @@ import {
 import { UserDocument } from './schemas/users.schema';
 import { UpdateUserInput } from './dto/update-user.input';
 import { UpdateAccountStatusInput } from './dto/update-account-status.input';
+import { AccountStatusGQL } from './models/users.model';
 import { GetAllUsersArgs } from './dto/get-all-users.args';
 import { PaginationArgs } from '../posts/dto/pagination.args';
 import { CombinedAuthGuard } from '../auth/guards/combined-auth.guard';
@@ -149,6 +150,35 @@ export class UsersResolver {
     const { userId, accountStatus } = updateAccountStatusInput;
     // The service expects the Mongoose enum, GQL enum string values should match
     return this.usersService.updateAccountStatus(userId, accountStatus as any);
+  }
+
+  // Soft-delete (self): reuses the accountStatus flag rather than a hard
+  // row delete, consistent with how posts/comments are removed elsewhere.
+  @UseGuards(BetterAuthGuard)
+  @Mutation(() => Boolean, { name: 'removeUser' })
+  async removeUser(@CurrentUser() currentUser: AppUserType): Promise<boolean> {
+    if (!('id' in currentUser)) {
+      throw new BadRequestException('No user profile to remove.');
+    }
+    await this.usersService.updateAccountStatus(
+      currentUser.id,
+      AccountStatusGQL.DEACTIVATED as any,
+    );
+    return true;
+  }
+
+  // Soft-delete (admin-triggered) — the "deleteUser" mutation the admin
+  // panel's dataProvider already has a TODO expecting.
+  @UseGuards(AdminAuthGuard)
+  @Mutation(() => Boolean, { name: 'adminRemoveUser' })
+  async adminRemoveUser(
+    @Args('id', { type: () => ID }) id: string,
+  ): Promise<boolean> {
+    await this.usersService.updateAccountStatus(
+      id,
+      AccountStatusGQL.DEACTIVATED as any,
+    );
+    return true;
   }
 
   @UseGuards(BetterAuthGuard)

@@ -119,6 +119,29 @@ export class GroupsService {
   }
 
   /**
+   * Guards post *creation* inside a group — unlike viewing content, this
+   * always requires actual membership regardless of the group's privacy
+   * tier (a PUBLIC group can be seen by anyone, but posting still requires
+   * having joined it).
+   */
+  async assertCanPostInGroup(
+    groupId: string,
+    userId: string,
+  ): Promise<GroupModel> {
+    const group = await this.prisma.group.findUnique({ where: { id: groupId } });
+    if (!group) {
+      throw new NotFoundException(`Group with ID "${groupId}" not found.`);
+    }
+    const isMember = await this.membershipService.isMember(groupId, userId);
+    if (!isMember) {
+      throw new ForbiddenException(
+        'You must be a member of this group to post in it.',
+      );
+    }
+    return group;
+  }
+
+  /**
    * Updates a group's details.
    */
   async update(

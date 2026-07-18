@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { PostStatus, MediaType } from '../../generated/prisma/enums';
+import { PostStatus, MediaType, GroupPrivacy } from '../../generated/prisma/enums';
 import type { Prisma } from '../../generated/prisma/client';
 import { CreatePostInput } from './dto/create-post.input';
 import { PaginationArgs } from './dto/pagination.args';
@@ -55,6 +55,38 @@ export class PostsService {
     return post;
   }
 
+  /**
+   * Lean lookup used by callers (e.g. CommentsResolver) that need to check
+   * group-content visibility for a post without fetching the full row.
+   */
+  async findGroupIdForPost(postId: string): Promise<string | null> {
+    const post = await this.prisma.post.findUnique({
+      where: { id: postId },
+      select: { groupId: true },
+    });
+    return post?.groupId ?? null;
+  }
+
+  /**
+   * Restricts a post listing to items whose parent group (if any) is
+   * visible to the viewer: posts with no group, posts in a PUBLIC group, or
+   * posts in a group the viewer is actually a member of. Callers fetching
+   * as an admin should bypass this filter entirely rather than pass a
+   * viewerId (admins can already see everything, same as the archived-post
+   * bypass below).
+   */
+  private groupVisibilityFilter(viewerId?: string): Prisma.PostWhereInput {
+    return {
+      OR: [
+        { groupId: null },
+        { group: { privacy: GroupPrivacy.PUBLIC } },
+        ...(viewerId
+          ? [{ group: { memberships: { some: { userId: viewerId } } } }]
+          : []),
+      ],
+    };
+  }
+
   async update(id: string, userId: string, updatePostInput: UpdatePostInput) {
     const post = await this.prisma.post.findUnique({ where: { id } });
     if (!post) {
@@ -89,12 +121,15 @@ export class PostsService {
     authorIds: string[],
     paginationArgs: PaginationArgs,
     includeArchived = false,
+    viewerId?: string,
+    bypassGroupVisibility = false,
   ) {
     const { skip, limit } = paginationArgs;
     return this.prisma.post.findMany({
       where: {
         authorId: { in: authorIds },
         ...(includeArchived ? {} : { status: PostStatus.PUBLISHED }),
+        ...(bypassGroupVisibility ? {} : this.groupVisibilityFilter(viewerId)),
       },
       orderBy: { createdAt: 'desc' },
       skip,
@@ -124,10 +159,16 @@ export class PostsService {
   /**
    * Finds all posts on the platform, for general discovery.
    */
-  async findAllPosts(paginationArgs: PaginationArgs, includeArchived = false) {
+  async findAllPosts(
+    paginationArgs: PaginationArgs,
+    includeArchived = false,
+    viewerId?: string,
+  ) {
     const { skip, limit } = paginationArgs;
     return this.prisma.post.findMany({
-      where: includeArchived ? {} : { status: PostStatus.PUBLISHED },
+      where: includeArchived
+        ? {}
+        : { status: PostStatus.PUBLISHED, ...this.groupVisibilityFilter(viewerId) },
       orderBy: { createdAt: 'desc' },
       skip,
       take: limit,
