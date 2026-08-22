@@ -130,6 +130,20 @@ enum ConnectionRequestStatusGQL {
   TERMINATED
 }
 
+type Conversation {
+  createdAt: DateTime!
+  id: ID!
+  lastMessage: Message
+  lastMessageAt: DateTime
+  otherParticipant: User!
+  unreadCount: Int!
+}
+
+type ConversationPresenceUpdate {
+  online: Boolean!
+  typing: Boolean!
+}
+
 input CreateAdminUserInput {
   email: String!
   isActive: Boolean = true
@@ -443,6 +457,17 @@ input MediaItemInput {
   url: String!
 }
 
+type Message {
+  content: String!
+  conversationId: ID!
+  createdAt: DateTime!
+  deleted: Boolean!
+  id: ID!
+  read: Boolean!
+  sender: User!
+  updatedAt: DateTime!
+}
+
 type Mutation {
   acceptConnectionRequest(requestId: ID!): Boolean!
 
@@ -475,6 +500,7 @@ type Mutation {
 
   """Cancels the current user pending join request."""
   cancelGroupJoinRequest(input: RespondToGroupJoinRequestInput!): Boolean!
+  clearActiveConversation: Boolean!
   createAdminUser(createAdminUserInput: CreateAdminUserInput!): AdminUser!
   createGroup(createGroupInput: CreateGroupInput!): Group!
   createPost(createPostInput: CreatePostInput!): Post!
@@ -487,10 +513,13 @@ type Mutation {
 
   """Allows the group creator to delete the group."""
   deleteGroup(groupId: ID!): Boolean!
+  deleteMessage(messageId: ID!): Boolean!
 
   """Deletes a file the current user previously uploaded to R2."""
   deleteUploadedFile(key: String!): Boolean!
+  editMessage(content: String!, messageId: ID!): Message!
   follow(userId: ID!): Boolean!
+  getOrCreateConversationWithUser(userId: ID!): Conversation!
 
   """Returns a presigned URL to upload a file directly to Cloudflare R2."""
   getUploadUrl(input: GetUploadUrlInput!): UploadUrlResponse!
@@ -499,6 +528,7 @@ type Mutation {
   leaveGroup(groupId: ID!): Group!
   likeComment(commentId: ID!): Boolean!
   likePost(postId: ID!): Boolean!
+  markConversationRead(conversationId: ID!): Boolean!
   markNotificationsAsRead(notificationIds: [ID!]!): Boolean!
   registerFcmToken(token: String!): Boolean!
 
@@ -529,6 +559,9 @@ type Mutation {
   resetAdminPassword(resetAdminPasswordInput: ResetAdminPasswordInput!): AdminUser!
   resolveReport(reportId: ID!, status: ReportStatus!): Boolean!
   sendConnectionRequest(recipientId: ID!): Boolean!
+  sendMessage(content: String!, recipientId: ID!): Message!
+  sendTypingIndicator(conversationId: ID!): Boolean!
+  setActiveConversation(conversationId: ID!): Boolean!
   unblockUser(userId: ID!): Boolean!
   unfollow(userId: ID!): Boolean!
   unlikeComment(commentId: ID!): Boolean!
@@ -568,6 +601,7 @@ type NotificationPreference {
   notifyEstablishmentAnnouncements: Boolean!
   notifyGroupActivity: Boolean!
   notifyMentions: Boolean!
+  notifyMessages: Boolean!
   notifyReactions: Boolean!
   notifyReplies: Boolean!
   quietHoursEnabled: Boolean!
@@ -584,6 +618,7 @@ enum NotificationType {
   GROUP_JOIN_REQUEST
   GROUP_JOIN_REQUEST_ACCEPTED
   MENTION
+  MESSAGE
   NEW_FOLLOWER
   POST_APPROVED
   POST_COMMENT
@@ -843,10 +878,26 @@ type Query {
     """Number of items to skip"""
     skip: Int! = 0
   ): [Group!]!
+  getMessages(
+    conversationId: ID!
+
+    """Number of items to return"""
+    limit: Int! = 10
+
+    """Number of items to skip"""
+    skip: Int! = 0
+  ): [Message!]!
   getMyConnectionRequests(
     """Filter requests by status (e.g., PENDING)"""
     status: ConnectionRequestStatusGQL
   ): [ConnectionRequest!]!
+  getMyConversations(
+    """Number of items to return"""
+    limit: Int! = 10
+
+    """Number of items to skip"""
+    skip: Int! = 0
+  ): [Conversation!]!
   getMyGroupJoinRequests(
     groupId: ID
 
@@ -899,6 +950,7 @@ type Query {
     skip: Int! = 0
   ): [Post!]!
   getReports(groupId: ID!, status: ReportStatus): [Report!]!
+  getUnreadConversationsCount: Int!
   getUserByAuthUserId(authUserId: ID!): User
   getUserById(id: ID!): User
   getUserBySlug(slug: String!): User
@@ -970,8 +1022,12 @@ enum Speciality {
 type Subscription {
   commentAdded(postId: ID!): String!
   connectionRequestUpdated: ConnectionRequestForSubscriptionGQL
+  conversationPresence(conversationId: ID!): ConversationPresenceUpdate!
   followsUpdated(userId: ID!): FollowsUpdate
   likesUpdated(likeableId: ID!, likeableType: String!): LikesUpdate!
+  messageAdded(conversationId: ID!): Message!
+  messageDeleted(conversationId: ID!): ID!
+  messageEdited(conversationId: ID!): Message!
   notificationAdded: Notification!
 }
 
@@ -1007,6 +1063,7 @@ input UpdateNotificationPreferencesInput {
   notifyEstablishmentAnnouncements: Boolean
   notifyGroupActivity: Boolean
   notifyMentions: Boolean
+  notifyMessages: Boolean
   notifyReactions: Boolean
   notifyReplies: Boolean
   quietHoursEnabled: Boolean

@@ -35,6 +35,10 @@ import { CacheInvalidationService } from './cache/cache-invalidation.service';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
 import { GqlThrottlerGuard } from './common/guards/gql-throttler.guard';
+import { BlocksModule } from './blocks/blocks.module';
+import { PresenceModule } from './presence/presence.module';
+import { PresenceService } from './presence/presence.service';
+import { MessagesModule } from './messages/messages.module';
 
 @Module({
   imports: [
@@ -44,12 +48,13 @@ import { GqlThrottlerGuard } from './common/guards/gql-throttler.guard';
     }),
     GraphQLModule.forRootAsync<ApolloDriverConfig>({
       driver: ApolloDriver,
-      imports: [DataloaderModule, AuthModule, BookmarksModule],
-      inject: [ModuleRef, AuthService, BetterAuthTokenService],
+      imports: [DataloaderModule, AuthModule, BookmarksModule, PresenceModule],
+      inject: [ModuleRef, AuthService, BetterAuthTokenService, PresenceService],
       useFactory: (
         moduleRef: ModuleRef,
         authService: AuthService,
         betterAuthTokenService: BetterAuthTokenService,
+        presenceService: PresenceService,
       ) => ({
         autoSchemaFile: join(process.cwd(), 'src/schema.gql'),
         installSubscriptionHandlers: true,
@@ -75,6 +80,9 @@ import { GqlThrottlerGuard } from './common/guards/gql-throttler.guard';
                   const user = await authService.validateAndLinkUser(payload);
                   // Attacher l'utilisateur au contexte de la connexion WebSocket
                   (extra as any).user = user;
+                  if (user && 'id' in user) {
+                    presenceService.setOnline(user.id);
+                  }
                   return { user };
                 } catch (e) {
                   console.error(
@@ -88,6 +96,12 @@ import { GqlThrottlerGuard } from './common/guards/gql-throttler.guard';
 
               // Rejeter la connexion si aucun token n'est fourni
               return false;
+            },
+            onDisconnect: (context) => {
+              const user = (context.extra as any)?.user;
+              if (user && 'id' in user) {
+                presenceService.setOffline(user.id);
+              }
             },
           },
         },
@@ -202,6 +216,9 @@ query GetAllUsers {
     FollowsModule,
     StorageModule,
     ReportsModule,
+    BlocksModule,
+    PresenceModule,
+    MessagesModule,
 
     // Cache Module (Redis with in-memory fallback)
     CacheModule,
