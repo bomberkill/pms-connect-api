@@ -21,6 +21,9 @@ export class NotificationPreferenceGQL {
   notifyEstablishmentAnnouncements: boolean;
 
   @Field()
+  notifyMessages: boolean;
+
+  @Field()
   quietHoursEnabled: boolean;
 
   @Field(() => Int, { nullable: true })

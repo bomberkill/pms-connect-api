@@ -50,6 +50,7 @@ const DEFAULT_PREFERENCES = {
   notifyReactions: false,
   notifyGroupActivity: true,
   notifyEstablishmentAnnouncements: false,
+  notifyMessages: true,
   quietHoursEnabled: false,
   quietHoursStart: null as number | null,
   quietHoursEnd: null as number | null,
@@ -84,6 +85,8 @@ function preferenceFieldFor(
     case NotificationType.POST_APPROVED:
     case NotificationType.POST_REJECTED:
       return null;
+    case NotificationType.MESSAGE:
+      return 'notifyMessages';
     default:
       return null;
   }

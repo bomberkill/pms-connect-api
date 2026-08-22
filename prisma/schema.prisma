@@ -163,6 +163,7 @@ enum NotificationType {
   POST_APPROVED
   POST_REJECTED
   MENTION
+  MESSAGE
 }
 
 enum AdminRole {
@@ -250,6 +251,10 @@ model User {
   reportsMade     Report[] @relation("Reporter")
   reportsReceived Report[] @relation("ReportedUser")
 
+  conversationsAsA Conversation[] @relation("ConversationParticipantA")
+  conversationsAsB Conversation[] @relation("ConversationParticipantB")
+  messagesSent     Message[]      @relation("MessageSender")
+
   @@index([accountStatus])
 }
 
@@ -307,6 +312,44 @@ model Block {
   createdAt DateTime @default(now())
 
   @@unique([blockerId, blockedId])
+}
+
+// Conversation is symmetric (unlike Follow/Block, which are directional) —
+// participantAId/participantBId are always stored with the lexicographically
+// smaller user id first (canonicalized in MessagesService before every
+// read/write) so @@unique below actually prevents duplicate conversations
+// regardless of who initiates.
+model Conversation {
+  id             String    @id @default(cuid())
+  participantAId String
+  participantA   User      @relation("ConversationParticipantA", fields: [participantAId], references: [id], onDelete: Cascade)
+  participantBId String
+  participantB   User      @relation("ConversationParticipantB", fields: [participantBId], references: [id], onDelete: Cascade)
+  messages       Message[]
+  lastMessageAt  DateTime?
+  createdAt      DateTime  @default(now())
+
+  @@unique([participantAId, participantBId])
+  @@index([participantAId, lastMessageAt])
+  @@index([participantBId, lastMessageAt])
+}
+
+model Message {
+  id             String       @id @default(cuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderId       String
+  sender         User         @relation("MessageSender", fields: [senderId], references: [id], onDelete: Cascade)
+  content        String
+  read           Boolean      @default(false)
+  // Soft-delete sentinel, same convention as Comment.status — keeps the
+  // row (and thread position) instead of a hard delete; content is kept
+  // in the DB but must never be rendered once deleted is true.
+  deleted        Boolean      @default(false)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@index([conversationId, createdAt])
 }
 
 // ---------- Content ----------
@@ -527,6 +570,7 @@ model NotificationPreference {
   notifyReactions                  Boolean @default(false)
   notifyGroupActivity              Boolean @default(true)
   notifyEstablishmentAnnouncements Boolean @default(false)
+  notifyMessages                   Boolean @default(true)
 
   quietHoursEnabled Boolean @default(false)
   quietHoursStart   Int? // 0-23

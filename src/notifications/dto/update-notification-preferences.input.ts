@@ -36,6 +36,11 @@ export class UpdateNotificationPreferencesInput {
   @Field({ nullable: true })
   @IsOptional()
   @IsBoolean()
+  notifyMessages?: boolean;
+
+  @Field({ nullable: true })
+  @IsOptional()
+  @IsBoolean()
   quietHoursEnabled?: boolean;
 
   @Field(() => Int, { nullable: true, description: '0-23' })
