@@ -45,6 +45,15 @@ export class MessagesResolver {
   }
 
   @UseGuards(BetterAuthGuard)
+  @Query(() => Conversation, { name: 'getConversationById' })
+  async getConversationById(
+    @CurrentUser() user: UserDocument,
+    @Args('conversationId', { type: () => ID }) conversationId: string,
+  ) {
+    return this.messagesService.getConversationOrThrow(conversationId, user.id);
+  }
+
+  @UseGuards(BetterAuthGuard)
   @Query(() => [Message], { name: 'getMessages' })
   async getMessages(
     @CurrentUser() user: UserDocument,

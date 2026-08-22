@@ -828,6 +828,7 @@ type Query {
     """Number of items to skip"""
     skip: Int! = 0
   ): [User!]!
+  getConversationById(conversationId: ID!): Conversation!
   getFeed(
     """Number of items to return"""
     limit: Int! = 10
