@@ -125,6 +125,10 @@ export class NotificationsResolver {
         return `${senderName} commented on your post.`;
       case NotificationType.NEW_FOLLOWER:
         return `${senderName} started following you.`;
+      case NotificationType.POST_APPROVED:
+        return 'Your post was approved and is now published.';
+      case NotificationType.POST_REJECTED:
+        return 'Your post was rejected by a group moderator.';
       default:
         return 'You have a new notification.';
     }

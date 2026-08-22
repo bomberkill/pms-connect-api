@@ -58,6 +58,15 @@ export class GroupGQL {
   profileImageUrl?: string;
 
   @Field()
+  postsRequireApproval: boolean;
+
+  @Field()
+  restrictToVerifiedTitles: boolean;
+
+  @Field(() => [String])
+  rules: string[];
+
+  @Field()
   createdAt: Date;
 
   @Field()

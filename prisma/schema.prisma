@@ -101,6 +101,8 @@ enum ConnectionRequestStatus {
 enum PostStatus {
   PUBLISHED
   ARCHIVED
+  PENDING
+  REJECTED
 }
 
 enum CommentStatus {
@@ -144,6 +146,8 @@ enum NotificationType {
   GROUP_JOIN_REQUEST
   GROUP_JOIN_REQUEST_ACCEPTED
   GROUP_INVITATION
+  POST_APPROVED
+  POST_REJECTED
 }
 
 enum AdminRole {
@@ -411,6 +415,13 @@ model Group {
   privacy          GroupPrivacy @default(PUBLIC)
   coverImageUrl    String?
   profileImageUrl  String?
+
+  // H9 group moderation: gate posts behind admin/moderator approval and
+  // (declaratively, no enforcement wired yet) restrict to verified titles.
+  postsRequireApproval     Boolean  @default(false)
+  restrictToVerifiedTitles Boolean  @default(false)
+  rules                    String[] @default([])
+
   createdAt        DateTime     @default(now())
   updatedAt        DateTime     @updatedAt
 

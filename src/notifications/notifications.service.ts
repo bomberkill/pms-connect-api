@@ -270,6 +270,8 @@ export class NotificationsService {
         NEW_FOLLOWER: `${senderName} started following you.`,
         CONNECTION_REQUEST: `${senderName} sent you a connection request.`,
         CONNECTION_ACCEPTED: `${senderName} accepted your connection request.`,
+        POST_APPROVED: 'Your post was approved and is now published.',
+        POST_REJECTED: 'Your post was rejected by a group moderator.',
         default: 'You have a new notification.',
       },
       fr: {
@@ -279,6 +281,8 @@ export class NotificationsService {
         NEW_FOLLOWER: `${senderName} a commencé à vous suivre.`,
         CONNECTION_REQUEST: `${senderName} vous a envoyé une demande de connexion.`,
         CONNECTION_ACCEPTED: `${senderName} a accepté votre demande de connexion.`,
+        POST_APPROVED: 'Votre publication a été approuvée et est maintenant publiée.',
+        POST_REJECTED: 'Votre publication a été rejetée par un modérateur du groupe.',
         default: 'Vous avez une nouvelle notification.',
       },
     };
@@ -297,6 +301,10 @@ export class NotificationsService {
         return messages[lang]?.CONNECTION_REQUEST || messages.en.CONNECTION_REQUEST;
       case 'CONNECTION_ACCEPTED':
         return messages[lang]?.CONNECTION_ACCEPTED || messages.en.CONNECTION_ACCEPTED;
+      case 'POST_APPROVED':
+        return messages[lang]?.POST_APPROVED || messages.en.POST_APPROVED;
+      case 'POST_REJECTED':
+        return messages[lang]?.POST_REJECTED || messages.en.POST_REJECTED;
       default:
         return messages[lang]?.default || messages.en.default;
     }
@@ -309,6 +317,8 @@ export class NotificationsService {
     switch (notification.type) {
       case 'POST_LIKE':
       case 'POST_COMMENT':
+      case 'POST_APPROVED':
+      case 'POST_REJECTED':
         return `/post/${entityId}`;
       case 'NEW_FOLLOWER':
       case 'CONNECTION_REQUEST':

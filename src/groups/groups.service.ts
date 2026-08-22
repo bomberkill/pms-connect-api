@@ -34,14 +34,30 @@ export class GroupsService {
     createGroupInput: CreateGroupInput,
     creator: UserDocument,
   ): Promise<GroupModel> {
-    const { name, description, privacy } = createGroupInput;
+    const {
+      name,
+      description,
+      privacy,
+      postsRequireApproval,
+      restrictToVerifiedTitles,
+      rules,
+    } = createGroupInput;
 
     // 1. Generate a unique slug
     const slug = await this._generateUniqueSlug(name);
 
     // 2. Create the new group (without members)
     const savedGroup = await this.prisma.group.create({
-      data: { name, slug, description, privacy, creatorId: creator.id },
+      data: {
+        name,
+        slug,
+        description,
+        privacy,
+        creatorId: creator.id,
+        postsRequireApproval,
+        restrictToVerifiedTitles,
+        rules,
+      },
     });
 
     // 3. Add the creator as the first member with ADMIN role using GroupMembershipService
@@ -136,6 +152,28 @@ export class GroupsService {
     if (!isMember) {
       throw new ForbiddenException(
         'You must be a member of this group to post in it.',
+      );
+    }
+    return group;
+  }
+
+  /**
+   * Guards group post-moderation actions (approve/reject a pending post,
+   * list the pending queue) — same ADMIN-or-MODERATOR bar as accepting a
+   * join request, see join-group-requests.service.ts.
+   */
+  async assertCanModerateGroupPosts(
+    groupId: string,
+    userId: string,
+  ): Promise<GroupModel> {
+    const group = await this.prisma.group.findUnique({ where: { id: groupId } });
+    if (!group) {
+      throw new NotFoundException(`Group with ID "${groupId}" not found.`);
+    }
+    const member = await this.membershipService.getMembership(groupId, userId);
+    if (!member || member.role === GroupMemberRole.MEMBER) {
+      throw new ForbiddenException(
+        'You must be an admin or moderator to moderate posts in this group.',
       );
     }
     return group;

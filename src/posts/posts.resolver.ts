@@ -54,6 +54,40 @@ export class PostsResolver {
     // return postDocument as unknown as Post;
   }
 
+  @UseGuards(CombinedAuthGuard)
+  @Mutation(() => Boolean, {
+    name: 'approveGroupPost',
+    description: 'Approves a pending group post as an admin or moderator.',
+  })
+  async approveGroupPost(
+    @Args('postId', { type: () => ID }) postId: string,
+    @CurrentUser() user: UserDocument,
+  ): Promise<boolean> {
+    return this.postsService.moderate(postId, user.id, 'APPROVED');
+  }
+
+  @UseGuards(CombinedAuthGuard)
+  @Mutation(() => Boolean, {
+    name: 'rejectGroupPost',
+    description: 'Rejects a pending group post as an admin or moderator.',
+  })
+  async rejectGroupPost(
+    @Args('postId', { type: () => ID }) postId: string,
+    @CurrentUser() user: UserDocument,
+  ): Promise<boolean> {
+    return this.postsService.moderate(postId, user.id, 'REJECTED');
+  }
+
+  @UseGuards(CombinedAuthGuard)
+  @Query(() => [Post], { name: 'getPendingGroupPosts' })
+  async getPendingGroupPosts(
+    @Args('groupId', { type: () => ID }) groupId: string,
+    @Args() paginationArgs: PaginationArgs,
+    @CurrentUser() user: UserDocument,
+  ): Promise<PostDocument[]> {
+    return this.postsService.findPendingByGroup(groupId, user.id, paginationArgs);
+  }
+
   @UseGuards(CombinedAuthGuard) // Protéger la lecture pour s'assurer que l'utilisateur est connecté
   @Query(() => Post, { name: 'getPostById', nullable: true })
   async getPostById(
