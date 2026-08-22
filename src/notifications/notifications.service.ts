@@ -10,6 +10,8 @@ import { PaginationArgs } from '../posts/dto/pagination.args';
 import { UserDocument } from '../users/schemas/users.schema';
 import { CreateNotificationDto } from './dto/create-notification.dto';
 import { GetAdminNotificationsArgs } from './dto/get-admin-notifications.args';
+import { UpdateNotificationPreferencesInput } from './dto/update-notification-preferences.input';
+import { NotificationType } from './schemas/notification.schema';
 // UsersService imports NotificationsService (to send a follow
 // notification) — a genuine circular class dependency. Reflected
 // constructor-param metadata can come back `undefined` for one side of a
@@ -41,6 +43,67 @@ function entityFieldsFor(
   }
 }
 
+const DEFAULT_PREFERENCES = {
+  notifyReplies: true,
+  notifyMentions: true,
+  notifyConnectionRequests: true,
+  notifyReactions: false,
+  notifyGroupActivity: true,
+  notifyEstablishmentAnnouncements: false,
+  quietHoursEnabled: false,
+  quietHoursStart: null as number | null,
+  quietHoursEnd: null as number | null,
+  weeklyEmailDigest: false,
+};
+
+// Which preference gates a given notification type. `null` means the type
+// is always delivered regardless of preferences — used for types that
+// aren't "engagement noise" the mockup's toggle list covers (the author
+// needs to know their post was rejected even with reactions muted) or
+// that have no corresponding toggle yet (establishment announcements have
+// no notification type wired up anywhere in the codebase today).
+function preferenceFieldFor(
+  type: NotificationType,
+): keyof typeof DEFAULT_PREFERENCES | null {
+  switch (type) {
+    case NotificationType.POST_COMMENT:
+      return 'notifyReplies';
+    case NotificationType.MENTION:
+      return 'notifyMentions';
+    case NotificationType.NEW_FOLLOWER:
+    case NotificationType.CONNECTION_REQUEST:
+    case NotificationType.CONNECTION_ACCEPTED:
+      return 'notifyConnectionRequests';
+    case NotificationType.POST_LIKE:
+    case NotificationType.COMMENT_LIKE:
+      return 'notifyReactions';
+    case NotificationType.GROUP_JOIN_REQUEST:
+    case NotificationType.GROUP_JOIN_REQUEST_ACCEPTED:
+    case NotificationType.GROUP_INVITATION:
+      return 'notifyGroupActivity';
+    case NotificationType.POST_APPROVED:
+    case NotificationType.POST_REJECTED:
+      return null;
+    default:
+      return null;
+  }
+}
+
+function isWithinQuietHours(
+  pref: { quietHoursEnabled: boolean; quietHoursStart: number | null; quietHoursEnd: number | null },
+): boolean {
+  if (!pref.quietHoursEnabled || pref.quietHoursStart == null || pref.quietHoursEnd == null) {
+    return false;
+  }
+  // Server-local hour — no per-user timezone field exists yet, see the
+  // NotificationPreference model comment in schema.prisma.
+  const hour = new Date().getHours();
+  const { quietHoursStart: start, quietHoursEnd: end } = pref;
+  return start <= end
+    ? hour >= start && hour < end
+    : hour >= start || hour < end; // wraps past midnight, e.g. 20 -> 7
+}
+
 function resolveEntityId(notification: NotificationDocument): string | null {
   return (
     notification.postId ??
@@ -67,7 +130,32 @@ export class NotificationsService {
     const { recipients, sender, type, entityId, onModel } = dto;
 
     // Filter out the sender to prevent self-notification
-    const finalRecipients = recipients.filter((r) => r !== sender);
+    let finalRecipients = recipients.filter((r) => r !== sender);
+
+    if (finalRecipients.length === 0) {
+      return;
+    }
+
+    // Gate on recipient preferences (missing row = defaults, see
+    // getPreferences). Types with no preferenceFieldFor mapping are
+    // always delivered.
+    const preferenceField = preferenceFieldFor(type);
+    let quietHoursRecipientIds = new Set<string>();
+    if (preferenceField) {
+      const rows = await this.prisma.notificationPreference.findMany({
+        where: { userId: { in: finalRecipients } },
+      });
+      const byUserId = new Map(rows.map((r) => [r.userId, r]));
+      finalRecipients = finalRecipients.filter((userId) => {
+        const pref = byUserId.get(userId) ?? DEFAULT_PREFERENCES;
+        return pref[preferenceField] !== false;
+      });
+      quietHoursRecipientIds = new Set(
+        finalRecipients.filter((userId) =>
+          isWithinQuietHours(byUserId.get(userId) ?? DEFAULT_PREFERENCES),
+        ),
+      );
+    }
 
     if (finalRecipients.length === 0) {
       return;
@@ -84,13 +172,41 @@ export class NotificationsService {
       })),
     });
 
-    // Publish events and send push notifications for each created row
+    // Publish events and send push notifications for each created row —
+    // quiet hours suppress the push only, the in-app notification still
+    // gets created and shows up next time the recipient opens the app.
     for (const notification of createdNotifications) {
       this.pubSub.publish('NOTIFICATION_ADDED', {
         notificationAdded: notification,
       });
-      this.sendPushNotification(notification);
+      if (!quietHoursRecipientIds.has(notification.recipientId)) {
+        this.sendPushNotification(notification);
+      }
     }
+  }
+
+  /**
+   * Returns the caller's notification preferences, merged with defaults
+   * for any field not yet customized (or if no row exists at all — no
+   * backfill needed for pre-existing users).
+   */
+  async getPreferences(userId: string) {
+    const pref = await this.prisma.notificationPreference.findUnique({
+      where: { userId },
+    });
+    return { ...DEFAULT_PREFERENCES, ...pref };
+  }
+
+  async updatePreferences(
+    userId: string,
+    input: UpdateNotificationPreferencesInput,
+  ) {
+    const pref = await this.prisma.notificationPreference.upsert({
+      where: { userId },
+      create: { userId, ...input },
+      update: { ...input },
+    });
+    return { ...DEFAULT_PREFERENCES, ...pref };
   }
 
   async findForUser(

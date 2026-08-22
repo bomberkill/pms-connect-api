@@ -148,6 +148,7 @@ enum NotificationType {
   GROUP_INVITATION
   POST_APPROVED
   POST_REJECTED
+  MENTION
 }
 
 enum AdminRole {
@@ -229,6 +230,8 @@ model User {
 
   blocking  Block[] @relation("Blocker")
   blockedBy Block[] @relation("Blocked")
+
+  notificationPreference NotificationPreference?
 
   @@index([accountStatus])
 }
@@ -487,6 +490,32 @@ model Notification {
   targetUser   User?    @relation("NotificationTargetUser", fields: [targetUserId], references: [id], onDelete: Cascade)
 
   @@index([recipientId, read, createdAt])
+}
+
+// H10: per-user notification preferences. Missing row = defaults below
+// (see NotificationsService.getPreferences) — no backfill needed for
+// existing users. quietHours* suppress push delivery only, not the
+// in-app/DB notification itself; hours are plain 0-23 ints compared
+// against server local time (no per-user timezone field exists yet).
+model NotificationPreference {
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  notifyReplies                    Boolean @default(true)
+  notifyMentions                   Boolean @default(true)
+  notifyConnectionRequests         Boolean @default(true)
+  notifyReactions                  Boolean @default(false)
+  notifyGroupActivity              Boolean @default(true)
+  notifyEstablishmentAnnouncements Boolean @default(false)
+
+  quietHoursEnabled Boolean @default(false)
+  quietHoursStart   Int? // 0-23
+  quietHoursEnd     Int? // 0-23
+
+  weeklyEmailDigest Boolean @default(false)
+
+  updatedAt DateTime @updatedAt
 }
 
 // ---------- Admin ----------

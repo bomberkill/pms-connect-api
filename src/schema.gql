@@ -528,6 +528,7 @@ type Mutation {
   """Updates the authenticated user's email address."""
   updateMyEmail(newEmail: String!): User!
   updateMyProfile(updateUserInput: UpdateUserInput!): User!
+  updateNotificationPreferences(input: UpdateNotificationPreferencesInput!): NotificationPreference!
   updatePost(postId: ID!, updatePostInput: UpdatePostInput!): Post!
   updateUserByAdmin(id: ID!, updateUserInput: UpdateUserInput!): User!
 
@@ -546,6 +547,19 @@ type Notification {
   type: NotificationType!
 }
 
+type NotificationPreference {
+  notifyConnectionRequests: Boolean!
+  notifyEstablishmentAnnouncements: Boolean!
+  notifyGroupActivity: Boolean!
+  notifyMentions: Boolean!
+  notifyReactions: Boolean!
+  notifyReplies: Boolean!
+  quietHoursEnabled: Boolean!
+  quietHoursEnd: Int
+  quietHoursStart: Int
+  weeklyEmailDigest: Boolean!
+}
+
 enum NotificationType {
   COMMENT_LIKE
   CONNECTION_ACCEPTED
@@ -553,6 +567,7 @@ enum NotificationType {
   GROUP_INVITATION
   GROUP_JOIN_REQUEST
   GROUP_JOIN_REQUEST_ACCEPTED
+  MENTION
   NEW_FOLLOWER
   POST_APPROVED
   POST_COMMENT
@@ -827,6 +842,7 @@ type Query {
     status: GroupJoinRequestStatusGQL
   ): [GroupJoinRequest!]!
   getMyGroupMembership(groupId: ID!): GroupMembership
+  getMyNotificationPreferences: NotificationPreference!
   getMyNotifications(
     """Number of items to return"""
     limit: Int! = 10
@@ -942,6 +958,23 @@ input UpdateGroupInput {
 input UpdateGroupMemberRoleInput {
   role: GroupMemberRole!
   userId: ID!
+}
+
+input UpdateNotificationPreferencesInput {
+  notifyConnectionRequests: Boolean
+  notifyEstablishmentAnnouncements: Boolean
+  notifyGroupActivity: Boolean
+  notifyMentions: Boolean
+  notifyReactions: Boolean
+  notifyReplies: Boolean
+  quietHoursEnabled: Boolean
+
+  """0-23"""
+  quietHoursEnd: Int
+
+  """0-23"""
+  quietHoursStart: Int
+  weeklyEmailDigest: Boolean
 }
 
 input UpdatePostInput {

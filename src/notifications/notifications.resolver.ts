@@ -24,6 +24,8 @@ import { PubSub } from 'graphql-subscriptions';
 import { PUB_SUB } from '../pubsub/pubsub.module';
 import { User } from '../users/models/users.model';
 import { GetAdminNotificationsArgs } from './dto/get-admin-notifications.args';
+import { UpdateNotificationPreferencesInput } from './dto/update-notification-preferences.input';
+import { NotificationPreferenceGQL } from './models/notification-preference.model';
 import { Dataloader } from '../dataloader/dataloader.decorator';
 import { UserLoader } from '../users/loaders/users.loader';
 
@@ -63,6 +65,23 @@ export class NotificationsResolver {
   @Query(() => Number, { name: 'unreadNotificationsCount' })
   async unreadNotificationsCount(@CurrentUser() user: UserDocument): Promise<number> {
     return this.notificationsService.countUnread(user.id);
+  }
+
+  @UseGuards(CombinedAuthGuard)
+  @Query(() => NotificationPreferenceGQL, { name: 'getMyNotificationPreferences' })
+  async getMyNotificationPreferences(
+    @CurrentUser() user: UserDocument,
+  ): Promise<NotificationPreferenceGQL> {
+    return this.notificationsService.getPreferences(user.id);
+  }
+
+  @UseGuards(CombinedAuthGuard)
+  @Mutation(() => NotificationPreferenceGQL, { name: 'updateNotificationPreferences' })
+  async updateNotificationPreferences(
+    @Args('input') input: UpdateNotificationPreferencesInput,
+    @CurrentUser() user: UserDocument,
+  ): Promise<NotificationPreferenceGQL> {
+    return this.notificationsService.updatePreferences(user.id, input);
   }
 
   @UseGuards(AdminAuthGuard)
