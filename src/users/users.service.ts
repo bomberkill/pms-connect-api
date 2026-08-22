@@ -20,6 +20,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { NotificationType } from '../notifications/schemas/notification.schema';
 import { PUB_SUB } from '../pubsub/pubsub.module';
 import { FollowsService } from '../follows/follows.service';
+import { BlocksService } from '../blocks/blocks.service';
 import type { UserModel } from '../../generated/prisma/models';
 
 @Injectable()
@@ -31,6 +32,7 @@ export class UsersService {
     @Inject(forwardRef(() => NotificationsService))
     private readonly notificationsService: NotificationsService,
     private readonly followsService: FollowsService,
+    private readonly blocksService: BlocksService,
     @Inject(PUB_SUB) private readonly pubSub: PubSub,
   ) {}
 
@@ -392,5 +394,24 @@ export class UsersService {
         following: { userId: followingId, followerCount },
       },
     });
+  }
+
+  // --- Block / Unblock Methods (using BlocksService) ---
+
+  async blockUser(blockerId: string, blockedId: string): Promise<void> {
+    const [blocker, blocked] = await Promise.all([
+      this.findById(blockerId),
+      this.findById(blockedId),
+    ]);
+
+    if (!blocker || !blocked) {
+      throw new NotFoundException('User not found');
+    }
+
+    await this.blocksService.blockUser(blockerId, blockedId);
+  }
+
+  async unblockUser(blockerId: string, blockedId: string): Promise<void> {
+    await this.blocksService.unblockUser(blockerId, blockedId);
   }
 }

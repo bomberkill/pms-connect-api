@@ -13,6 +13,7 @@ import { CommentLoader } from './loaders/comments.loader';
 import { BookmarksModule } from 'src/bookmarks/bookmarks.module';
 import { GroupsModule } from '../groups/groups.module';
 import { FollowsModule } from '../follows/follows.module';
+import { BlocksModule } from '../blocks/blocks.module';
 
 @Module({
   imports: [
@@ -21,6 +22,7 @@ import { FollowsModule } from '../follows/follows.module';
     forwardRef(() => BookmarksModule),
     forwardRef(() => GroupsModule),
     FollowsModule,
+    BlocksModule,
   ],
   providers: [
     PostsService,

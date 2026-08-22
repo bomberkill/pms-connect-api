@@ -8,6 +8,7 @@ import { ConnectionRequestsResolver } from './connection-requests.resolver';
 import { PubSubModule } from '../pubsub/pubsub.module';
 import { PostsModule } from 'src/posts/posts.module';
 import { FollowsModule } from '../follows/follows.module';
+import { BlocksModule } from '../blocks/blocks.module';
 
 @Module({
   imports: [
@@ -15,6 +16,7 @@ import { FollowsModule } from '../follows/follows.module';
     forwardRef(() => PostsModule), // Importer PostsModule pour rendre les modèles Post et Comment disponibles
     PubSubModule,
     FollowsModule,
+    BlocksModule,
   ],
   providers: [
     UsersResolver,

@@ -221,6 +221,28 @@ export class UsersResolver {
     return true;
   }
 
+  // --- Block / Unblock Mutations ---
+
+  @UseGuards(BetterAuthGuard)
+  @Mutation(() => Boolean, { name: 'blockUser' })
+  async blockUser(
+    @Args('userId', { type: () => ID }) userIdToBlock: string,
+    @CurrentUser() currentUser: UserDocument,
+  ): Promise<boolean> {
+    await this.usersService.blockUser(currentUser.id, userIdToBlock);
+    return true;
+  }
+
+  @UseGuards(BetterAuthGuard)
+  @Mutation(() => Boolean, { name: 'unblockUser' })
+  async unblockUser(
+    @Args('userId', { type: () => ID }) userIdToUnblock: string,
+    @CurrentUser() currentUser: UserDocument,
+  ): Promise<boolean> {
+    await this.usersService.unblockUser(currentUser.id, userIdToUnblock);
+    return true;
+  }
+
   @UseGuards(BetterAuthGuard)
   @Query(() => [User], { name: 'getFollowers' })
   async getFollowers(

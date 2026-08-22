@@ -471,6 +471,7 @@ type Mutation {
 
   """Approves a pending group post as an admin or moderator."""
   approveGroupPost(postId: ID!): Boolean!
+  blockUser(userId: ID!): Boolean!
 
   """Cancels the current user pending join request."""
   cancelGroupJoinRequest(input: RespondToGroupJoinRequestInput!): Boolean!
@@ -528,6 +529,7 @@ type Mutation {
   resetAdminPassword(resetAdminPasswordInput: ResetAdminPasswordInput!): AdminUser!
   resolveReport(reportId: ID!, status: ReportStatus!): Boolean!
   sendConnectionRequest(recipientId: ID!): Boolean!
+  unblockUser(userId: ID!): Boolean!
   unfollow(userId: ID!): Boolean!
   unlikeComment(commentId: ID!): Boolean!
   unlikePost(postId: ID!): Boolean!

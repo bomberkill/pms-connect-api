@@ -9,6 +9,7 @@ import { CommentsService } from './comments.service';
 import { GroupsService } from '../groups/groups.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { NotificationType } from '../notifications/schemas/notification.schema';
+import { BlocksService } from '../blocks/blocks.service';
 
 // Media used to be an embedded Mongoose array (always present on every
 // fetched Post, no populate needed) — it's a separate Prisma table now, so
@@ -23,6 +24,7 @@ export class PostsService {
     private readonly commentsService: CommentsService,
     private readonly groupsService: GroupsService,
     private readonly notificationsService: NotificationsService,
+    private readonly blocksService: BlocksService,
   ) {}
 
   async create(createPostInput: CreatePostInput, authorId: string) {
@@ -168,6 +170,20 @@ export class PostsService {
     };
   }
 
+  /**
+   * Excludes posts from authors the viewer has blocked, or who have
+   * blocked the viewer — a block hides content in both directions.
+   */
+  private async blockedAuthorsFilter(
+    viewerId?: string,
+  ): Promise<Prisma.PostWhereInput> {
+    if (!viewerId) {
+      return {};
+    }
+    const blockedIds = await this.blocksService.getMutualBlockIds(viewerId);
+    return blockedIds.length ? { authorId: { notIn: blockedIds } } : {};
+  }
+
   async update(id: string, userId: string, updatePostInput: UpdatePostInput) {
     const post = await this.prisma.post.findUnique({ where: { id } });
     if (!post) {
@@ -206,11 +222,13 @@ export class PostsService {
     bypassGroupVisibility = false,
   ) {
     const { skip, limit } = paginationArgs;
+    const blockedFilter = await this.blockedAuthorsFilter(viewerId);
     return this.prisma.post.findMany({
       where: {
         authorId: { in: authorIds },
         ...(includeArchived ? {} : { status: PostStatus.PUBLISHED }),
         ...(bypassGroupVisibility ? {} : this.groupVisibilityFilter(viewerId)),
+        ...blockedFilter,
       },
       orderBy: { createdAt: 'desc' },
       skip,
@@ -246,10 +264,15 @@ export class PostsService {
     viewerId?: string,
   ) {
     const { skip, limit } = paginationArgs;
+    const blockedFilter = await this.blockedAuthorsFilter(viewerId);
     return this.prisma.post.findMany({
       where: includeArchived
-        ? {}
-        : { status: PostStatus.PUBLISHED, ...this.groupVisibilityFilter(viewerId) },
+        ? { ...blockedFilter }
+        : {
+            status: PostStatus.PUBLISHED,
+            ...this.groupVisibilityFilter(viewerId),
+            ...blockedFilter,
+          },
       orderBy: { createdAt: 'desc' },
       skip,
       take: limit,
