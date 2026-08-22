@@ -253,13 +253,20 @@ export class MessagesResolver {
 
   // ---------- Field resolvers ----------
 
+  // @CurrentUser() (not @Context()) — the HTTP context's own top-level
+  // `context.user` is snapshotted from `req.user` at context-creation time,
+  // which runs BEFORE BetterAuthGuard's passport strategy populates
+  // `req.user` — it's always undefined there. @CurrentUser() instead reads
+  // `context.req.user` live off the shared `req` object, which the guard
+  // has already populated by the time a resolver runs. Confirmed as a real
+  // bug via live testing (otherParticipant always resolved to the viewer
+  // themselves) before switching to this.
   @ResolveField('otherParticipant', () => User)
   resolveOtherParticipant(
     @Parent() conversation: any, // eslint-disable-line @typescript-eslint/no-explicit-any
-    @Context() context: { user?: { id: string } },
+    @CurrentUser() viewer: UserDocument,
   ) {
-    const userId = context.user?.id;
-    return conversation.participantAId === userId ? conversation.participantB : conversation.participantA;
+    return conversation.participantAId === viewer.id ? conversation.participantB : conversation.participantA;
   }
 
   @ResolveField('lastMessage', () => Message, { nullable: true })
