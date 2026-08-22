@@ -110,6 +110,20 @@ enum CommentStatus {
   DELETED
 }
 
+enum ReportReason {
+  PATIENT_DATA
+  MEDICAL_MISINFORMATION
+  ADVERTISING
+  TITLE_IMPERSONATION
+  OTHER
+}
+
+enum ReportStatus {
+  PENDING
+  REVIEWED
+  DISMISSED
+}
+
 enum MediaType {
   IMAGE
   VIDEO
@@ -233,6 +247,9 @@ model User {
 
   notificationPreference NotificationPreference?
 
+  reportsMade     Report[] @relation("Reporter")
+  reportsReceived Report[] @relation("ReportedUser")
+
   @@index([accountStatus])
 }
 
@@ -316,6 +333,7 @@ model Post {
   likes        Like[]
   bookmarks    Bookmark[]
   notifications Notification[]
+  reports       Report[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -345,6 +363,7 @@ model Comment {
   likes         Like[]
   bookmarks     Bookmark[]
   notifications Notification[]
+  reports       Report[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -516,6 +535,35 @@ model NotificationPreference {
   weeklyEmailDigest Boolean @default(false)
 
   updatedAt DateTime @updatedAt
+}
+
+// H11: content/user reporting. Exclusive arc (postId/commentId/
+// reportedUserId — exactly one set), same convention as Bookmark. Traced
+// internally (reporterId stored, for rate-limiting and future abuse
+// detection) but never exposed to group moderators via GraphQL — the
+// Report GraphQL type has no reporter field, see reports.model.ts.
+model Report {
+  id       String @id @default(cuid())
+  reporterId String
+  reporter   User   @relation("Reporter", fields: [reporterId], references: [id], onDelete: Cascade)
+
+  postId         String?
+  post           Post?   @relation(fields: [postId], references: [id], onDelete: Cascade)
+  commentId      String?
+  comment        Comment? @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  reportedUserId String?
+  reportedUser   User?   @relation("ReportedUser", fields: [reportedUserId], references: [id], onDelete: Cascade)
+
+  reason  ReportReason
+  details String?
+  status  ReportStatus @default(PENDING)
+
+  createdAt DateTime @default(now())
+
+  @@index([postId])
+  @@index([commentId])
+  @@index([reportedUserId])
+  @@index([status])
 }
 
 // ---------- Admin ----------

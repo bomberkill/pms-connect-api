@@ -168,6 +168,18 @@ input CreatePostInput {
   status: PostStatus
 }
 
+input CreateReportInput {
+  commentId: ID
+
+  """Free-text detail, mainly for reason: OTHER."""
+  details: String
+
+  """Exactly one of postId/commentId/reportedUserId must be set."""
+  postId: ID
+  reason: ReportReason!
+  reportedUserId: ID
+}
+
 input CreateUserInput {
   bio: String
   coverPicUrl: String
@@ -465,6 +477,7 @@ type Mutation {
   createAdminUser(createAdminUserInput: CreateAdminUserInput!): AdminUser!
   createGroup(createGroupInput: CreateGroupInput!): Group!
   createPost(createPostInput: CreatePostInput!): Post!
+  createReport(input: CreateReportInput!): Boolean!
   createUser(createUserInput: CreateUserInput!): User!
 
   """Declines a group invitation for the current user."""
@@ -513,6 +526,7 @@ type Mutation {
 
   """Resets the admin password using a token."""
   resetAdminPassword(resetAdminPasswordInput: ResetAdminPasswordInput!): AdminUser!
+  resolveReport(reportId: ID!, status: ReportStatus!): Boolean!
   sendConnectionRequest(recipientId: ID!): Boolean!
   unfollow(userId: ID!): Boolean!
   unlikeComment(commentId: ID!): Boolean!
@@ -882,6 +896,7 @@ type Query {
     """Number of items to skip"""
     skip: Int! = 0
   ): [Post!]!
+  getReports(groupId: ID!, status: ReportStatus): [Report!]!
   getUserByAuthUserId(authUserId: ID!): User
   getUserById(id: ID!): User
   getUserBySlug(slug: String!): User
@@ -894,6 +909,31 @@ type Query {
     skip: Int! = 0
   ): [Bookmark!]!
   unreadNotificationsCount: Float!
+}
+
+type Report {
+  commentId: ID
+  createdAt: DateTime!
+  details: String
+  id: ID!
+  postId: ID
+  reason: ReportReason!
+  reportedUserId: ID
+  status: ReportStatus!
+}
+
+enum ReportReason {
+  ADVERTISING
+  MEDICAL_MISINFORMATION
+  OTHER
+  PATIENT_DATA
+  TITLE_IMPERSONATION
+}
+
+enum ReportStatus {
+  DISMISSED
+  PENDING
+  REVIEWED
 }
 
 input RequestAdminPasswordResetInput {

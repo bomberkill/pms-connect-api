@@ -29,6 +29,7 @@ import { BookmarksModule } from './bookmarks/bookmarks.module';
 import { GroupsModule } from './groups/groups.module';
 import { FollowsModule } from './follows/follows.module';
 import { StorageModule } from './storage/storage.module';
+import { ReportsModule } from './reports/reports.module';
 import { CacheModule } from './cache/cache.module';
 import { CacheInvalidationService } from './cache/cache-invalidation.service';
 import { ThrottlerModule } from '@nestjs/throttler';
@@ -200,6 +201,7 @@ query GetAllUsers {
     GroupsModule,
     FollowsModule,
     StorageModule,
+    ReportsModule,
 
     // Cache Module (Redis with in-memory fallback)
     CacheModule,
