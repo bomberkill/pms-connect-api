@@ -158,15 +158,23 @@ export abstract class User {
   id: string;
 
   @Field(() => ID, {
-    description: "User's unique identifier from Firebase Authentication",
+    nullable: true,
+    description:
+      "User's unique identifier from Better Auth. Only visible to the profile owner or an admin.",
   })
-  firebaseUid: string;
+  authUserId?: string;
 
-  @Field()
-  email: string;
+  @Field({
+    nullable: true,
+    description: 'Only visible to the profile owner or an admin.',
+  })
+  email?: string;
 
-  @Field()
-  phoneNumber: string;
+  @Field({
+    nullable: true,
+    description: 'Only visible to the profile owner or an admin.',
+  })
+  phoneNumber?: string;
 
   @Field({ description: 'The unique, URL-friendly identifier for the user.' })
   slug: string;
@@ -220,13 +228,18 @@ export abstract class User {
   following: string[];
 
   @Field(() => [ID], {
-    defaultValue: [],
-    description: 'List of blocked user IDs',
+    nullable: true,
+    description:
+      'List of blocked user IDs. Only visible to the profile owner or an admin.',
   })
-  blockedUsers: string[];
+  blockedUsers?: string[];
 
-  @Field(() => [String], { defaultValue: [] })
-  fcmTokens: string[];
+  @Field(() => [String], {
+    nullable: true,
+    description:
+      'Push-notification device tokens. Only visible to the profile owner or an admin.',
+  })
+  fcmTokens?: string[];
 
   @Field({ defaultValue: 'en' })
   language: string;

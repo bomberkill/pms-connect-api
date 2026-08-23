@@ -4,6 +4,8 @@ import {
   IsNotEmpty,
   IsOptional,
   IsEnum,
+  IsBoolean,
+  IsArray,
   MaxLength,
 } from 'class-validator';
 import { GroupPrivacy } from '../schemas/group.schema';
@@ -29,4 +31,20 @@ export class CreateGroupInput {
   @IsOptional()
   @IsEnum(GroupPrivacy)
   privacy?: GroupPrivacy;
+
+  @Field({ nullable: true, defaultValue: false })
+  @IsOptional()
+  @IsBoolean()
+  postsRequireApproval?: boolean;
+
+  @Field({ nullable: true, defaultValue: false })
+  @IsOptional()
+  @IsBoolean()
+  restrictToVerifiedTitles?: boolean;
+
+  @Field(() => [String], { nullable: 'itemsAndList' })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  rules?: string[];
 }

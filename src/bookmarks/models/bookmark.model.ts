@@ -18,7 +18,9 @@ export const BookmarkableItemUnion = createUnionType({
   name: 'BookmarkableItemUnion',
   types: () => [Post, Comment] as const,
   resolveType: (value) => {
-    if ('post' in value || 'parent' in value) {
+    // Comment's FK is postId (a Comment always belongs to a Post); Post has
+    // no such field, so this reliably distinguishes the two.
+    if ('postId' in value) {
       return 'Comment';
     }
     return 'Post';

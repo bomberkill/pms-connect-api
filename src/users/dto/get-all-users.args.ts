@@ -1,5 +1,5 @@
 import { ArgsType, Field, Int } from '@nestjs/graphql';
-import { IsOptional, Min, IsInt, IsEnum } from 'class-validator';
+import { IsOptional, Min, Max, IsInt, IsEnum } from 'class-validator';
 import { UserTypeGQL } from '../models/users.model';
 
 @ArgsType()
@@ -16,6 +16,7 @@ export class GetAllUsersArgs {
   })
   @IsOptional()
   @Min(1)
+  @Max(100)
   @IsInt()
   limit?: number = 10;
 

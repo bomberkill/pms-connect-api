@@ -6,50 +6,67 @@ import {
   Inject,
   ForbiddenException,
 } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model, FilterQuery } from 'mongoose';
 import { PubSub } from 'graphql-subscriptions';
+import { PrismaService } from '../prisma/prisma.service';
+import { GroupMemberRole, GroupPrivacy } from '../../generated/prisma/enums';
 import {
-  Group,
-  GroupDocument,
-  GroupMemberRole,
-  GroupPrivacy,
-} from './schemas/group.schema';
-import {
-  GroupJoinRequest,
-  GroupJoinRequestDocument,
   GroupJoinRequestStatus,
-} from './schemas/group-join-request.schema';
+} from '../../generated/prisma/enums';
+import type { GroupJoinRequestModel } from '../../generated/prisma/models';
 import { NotificationsService } from '../notifications/notifications.service';
 import { NotificationType } from '../notifications/schemas/notification.schema';
 import { GroupsService } from './groups.service';
 import { GetGroupJoinRequestsArgs } from './dto/get-join-requests.args';
 import { PUB_SUB } from '../pubsub/pubsub.module';
+import { GroupMembershipService } from './group-membership.service';
+import { UsersService } from '../users/users.service';
+import type { UserModel } from '../../generated/prisma/models';
+
+// GroupJoinRequestGQL.user is an eagerly-embedded GraphQL field (no
+// separate @ResolveField), so every request returned to a resolver must
+// already carry the full User object — same reasoning as
+// PopulatedGroupMembership in group-membership.service.ts.
+export type PopulatedGroupJoinRequest = Omit<
+  GroupJoinRequestModel,
+  'userId'
+> & { user: UserModel | null };
+
+const WITH_GROUP = { group: true } as const;
 
 @Injectable()
 export class JoinGroupRequestsService {
   constructor(
-    @InjectModel(Group.name) private groupModel: Model<GroupDocument>,
-    @InjectModel(GroupJoinRequest.name)
-    private readonly joinRequestModel: Model<GroupJoinRequestDocument>,
+    private readonly prisma: PrismaService,
     private readonly notificationsService: NotificationsService,
     @Inject(PUB_SUB) private readonly pubSub: PubSub,
     private readonly groupsService: GroupsService,
+    private readonly membershipService: GroupMembershipService,
+    private readonly usersService: UsersService,
   ) {}
+
+  private async attachUsers(
+    requests: GroupJoinRequestModel[],
+  ): Promise<PopulatedGroupJoinRequest[]> {
+    const userIds = [...new Set(requests.map((r) => r.userId))];
+    const users = await this.usersService.findManyByIds(userIds);
+    const usersById = new Map(users.map((u) => [u.id, u]));
+    return requests.map(({ userId, ...rest }) => ({
+      ...rest,
+      user: usersById.get(userId) ?? null,
+    }));
+  }
 
   async sendJoinRequest(
     groupId: string,
     requesterId: string,
-  ): Promise<GroupJoinRequestDocument> {
-    const group = await this.groupModel.findById(groupId);
+  ): Promise<GroupJoinRequestModel | null> {
+    const group = await this.prisma.group.findUnique({ where: { id: groupId } });
 
     if (!group) {
       throw new NotFoundException(`Group with ID "${groupId}" not found.`);
     }
 
-    const isMember = group.members.some(
-      (m) => m.user.toString() === requesterId,
-    );
+    const isMember = await this.membershipService.isMember(groupId, requesterId);
     if (isMember) {
       throw new ConflictException('You are already a member of this group.');
     }
@@ -68,10 +85,12 @@ export class JoinGroupRequestsService {
     }
 
     // For PRIVATE groups, create a join request.
-    const existingRequest = await this.joinRequestModel.findOne({
-      group: groupId,
-      user: requesterId,
-      status: GroupJoinRequestStatus.PENDING,
+    const existingRequest = await this.prisma.groupJoinRequest.findFirst({
+      where: {
+        groupId,
+        userId: requesterId,
+        status: GroupJoinRequestStatus.PENDING,
+      },
     });
 
     if (existingRequest) {
@@ -80,24 +99,24 @@ export class JoinGroupRequestsService {
       );
     }
 
-    const newRequest = new this.joinRequestModel({
-      group: groupId,
-      user: requesterId,
+    const savedRequest = await this.prisma.groupJoinRequest.create({
+      data: { groupId, userId: requesterId },
     });
 
-    const savedRequest = await newRequest.save();
-
     // Notify all group admins and moderators
-    const adminAndModeratorIds = group.members
-      .filter((m) => m.role !== GroupMemberRole.MEMBER)
-      .map((m) => m.user.toString());
+    const adminAndModeratorIds = (
+      await this.membershipService.getMembersByRoles(groupId, [
+        GroupMemberRole.ADMIN,
+        GroupMemberRole.MODERATOR,
+      ])
+    ).map((membership) => membership.user!.id);
 
     if (adminAndModeratorIds.length > 0) {
       this.notificationsService.create({
         recipients: adminAndModeratorIds,
         sender: requesterId,
         type: NotificationType.GROUP_JOIN_REQUEST,
-        entityId: group._id.toString(),
+        entityId: group.id,
         onModel: 'Group',
       });
     }
@@ -121,15 +140,16 @@ export class JoinGroupRequestsService {
     groupId: string,
     userIdToInvite: string,
     currentUserId: string,
-  ): Promise<GroupJoinRequestDocument | null> {
-    const group = await this.groupModel.findById(groupId);
+  ): Promise<GroupJoinRequestModel | null> {
+    const group = await this.prisma.group.findUnique({ where: { id: groupId } });
     if (!group) {
       throw new NotFoundException(`Group with ID "${groupId}" not found.`);
     }
 
     // 1. Check if the current user is an admin or moderator
-    const currentUserMember = group.members.find(
-      (m) => m.user.toString() === currentUserId,
+    const currentUserMember = await this.membershipService.getMembership(
+      groupId,
+      currentUserId,
     );
     if (
       !currentUserMember ||
@@ -141,8 +161,9 @@ export class JoinGroupRequestsService {
     }
 
     // 2. Check if the user to invite is already a member
-    const isAlreadyMember = group.members.some(
-      (m) => m.user.toString() === userIdToInvite,
+    const isAlreadyMember = await this.membershipService.isMember(
+      groupId,
+      userIdToInvite,
     );
     if (isAlreadyMember) {
       throw new ConflictException(
@@ -162,11 +183,13 @@ export class JoinGroupRequestsService {
     }
 
     // For PRIVATE groups, create an invitation request
-    const existingRequest = await this.joinRequestModel.findOne({
-      group: groupId,
-      user: userIdToInvite,
-      status: {
-        $in: [GroupJoinRequestStatus.PENDING, GroupJoinRequestStatus.INVITED],
+    const existingRequest = await this.prisma.groupJoinRequest.findFirst({
+      where: {
+        groupId,
+        userId: userIdToInvite,
+        status: {
+          in: [GroupJoinRequestStatus.PENDING, GroupJoinRequestStatus.INVITED],
+        },
       },
     });
 
@@ -176,20 +199,20 @@ export class JoinGroupRequestsService {
       );
     }
 
-    const newRequest = new this.joinRequestModel({
-      group: groupId,
-      user: userIdToInvite,
-      status: GroupJoinRequestStatus.INVITED, // Mark as an invitation
+    const savedRequest = await this.prisma.groupJoinRequest.create({
+      data: {
+        groupId,
+        userId: userIdToInvite,
+        status: GroupJoinRequestStatus.INVITED, // Mark as an invitation
+      },
     });
-
-    const savedRequest = await newRequest.save();
 
     // Notify the invited user
     this.notificationsService.create({
       recipients: [userIdToInvite],
       sender: currentUserId,
-      type: NotificationType.GROUP_INVITATION, // Assurez-vous que ce type existe
-      entityId: group._id.toString(),
+      type: NotificationType.GROUP_INVITATION,
+      entityId: group.id,
       onModel: 'Group',
     });
 
@@ -197,19 +220,22 @@ export class JoinGroupRequestsService {
   }
 
   async acceptJoinRequest(requestId: string, adminId: string): Promise<void> {
-    const request = await this.joinRequestModel.findById(requestId);
+    const request = await this.prisma.groupJoinRequest.findUnique({
+      where: { id: requestId },
+    });
 
     if (!request) {
       throw new NotFoundException('Join request not found.');
     }
 
-    const group = await this.groupModel.findById(request.group.toString());
+    const group = await this.prisma.group.findUnique({ where: { id: request.groupId } });
     if (!group) {
       throw new NotFoundException('Group not found.');
     }
 
-    const adminMember = group.members.find(
-      (m) => m.user.toString() === adminId,
+    const adminMember = await this.membershipService.getMembership(
+      group.id,
+      adminId,
     );
 
     if (!adminMember || adminMember.role === GroupMemberRole.MEMBER) {
@@ -225,20 +251,19 @@ export class JoinGroupRequestsService {
     }
 
     // Add user to group
-    await this.groupsService.addMember(
-      group._id.toString(),
-      request.user.toString(),
-    );
+    await this.groupsService.addMember(group.id, request.userId);
 
-    request.status = GroupJoinRequestStatus.APPROVED;
-    await request.save();
+    await this.prisma.groupJoinRequest.update({
+      where: { id: requestId },
+      data: { status: GroupJoinRequestStatus.APPROVED },
+    });
 
     // Notify the user that their request was accepted
     this.notificationsService.create({
-      recipients: [request.user.toString()],
+      recipients: [request.userId],
       sender: adminId,
       type: NotificationType.GROUP_JOIN_REQUEST_ACCEPTED,
-      entityId: group._id.toString(),
+      entityId: group.id,
       onModel: 'Group',
     });
 
@@ -246,33 +271,26 @@ export class JoinGroupRequestsService {
     // this.pubSub.publish(...)
   }
 
-  async declineOrCancelJoinRequest(
-    requestId: string,
-    currentUserId: string,
-  ): Promise<void> {
-    const request = await this.joinRequestModel.findById(requestId);
-
+  async rejectJoinRequest(requestId: string, adminId: string): Promise<void> {
+    const request = await this.prisma.groupJoinRequest.findUnique({
+      where: { id: requestId },
+    });
     if (!request) {
       throw new NotFoundException('Join request not found.');
     }
 
-    const group = request.group;
-    const isRequester = request.user.toString() === currentUserId;
-
-    // We need to fetch the group to check member roles
-    const groupDoc = await this.groupModel.findById(group.toString());
-    if (!groupDoc) {
-      throw new NotFoundException('Group not found for this request.');
+    const group = await this.prisma.group.findUnique({ where: { id: request.groupId } });
+    if (!group) {
+      throw new NotFoundException('Group not found.');
     }
 
-    const adminMember = groupDoc.members.find(
-      (m) => m.user.toString() === currentUserId,
+    const adminMember = await this.membershipService.getMembership(
+      group.id,
+      adminId,
     );
-    const isAdmin = adminMember && adminMember.role !== GroupMemberRole.MEMBER;
-
-    if (!isRequester && !isAdmin) {
+    if (!adminMember || adminMember.role === GroupMemberRole.MEMBER) {
       throw new ForbiddenException(
-        'You are not authorized to modify this request.',
+        'You must be an admin or moderator to reject requests.',
       );
     }
 
@@ -282,16 +300,146 @@ export class JoinGroupRequestsService {
       );
     }
 
-    if (isRequester) {
-      request.status = GroupJoinRequestStatus.CANCELLED;
-    } else if (isAdmin) {
-      request.status = GroupJoinRequestStatus.REJECTED;
+    await this.prisma.groupJoinRequest.update({
+      where: { id: requestId },
+      data: { status: GroupJoinRequestStatus.REJECTED },
+    });
+  }
+
+  async adminApproveJoinRequest(requestId: string): Promise<void> {
+    const request = await this.prisma.groupJoinRequest.findUnique({
+      where: { id: requestId },
+    });
+    if (!request) {
+      throw new NotFoundException('Join request not found.');
     }
 
-    await request.save();
+    if (request.status !== GroupJoinRequestStatus.PENDING) {
+      throw new ConflictException(
+        `This request is already ${request.status.toLowerCase()}.`,
+      );
+    }
 
-    // TODO: Publish PubSub event
-    // this.pubSub.publish(...)
+    const group = await this.prisma.group.findUnique({ where: { id: request.groupId } });
+    if (!group) {
+      throw new NotFoundException('Group not found.');
+    }
+
+    await this.groupsService.addMember(group.id, request.userId);
+
+    await this.prisma.groupJoinRequest.update({
+      where: { id: requestId },
+      data: { status: GroupJoinRequestStatus.APPROVED },
+    });
+  }
+
+  async adminRejectJoinRequest(requestId: string): Promise<void> {
+    const request = await this.prisma.groupJoinRequest.findUnique({
+      where: { id: requestId },
+    });
+    if (!request) {
+      throw new NotFoundException('Join request not found.');
+    }
+
+    if (request.status !== GroupJoinRequestStatus.PENDING) {
+      throw new ConflictException(
+        `This request is already ${request.status.toLowerCase()}.`,
+      );
+    }
+
+    const group = await this.prisma.group.findUnique({ where: { id: request.groupId } });
+    if (!group) {
+      throw new NotFoundException('Group not found.');
+    }
+
+    await this.prisma.groupJoinRequest.update({
+      where: { id: requestId },
+      data: { status: GroupJoinRequestStatus.REJECTED },
+    });
+  }
+
+  async cancelJoinRequest(requestId: string, requesterId: string): Promise<void> {
+    const request = await this.prisma.groupJoinRequest.findUnique({
+      where: { id: requestId },
+    });
+    if (!request) {
+      throw new NotFoundException('Join request not found.');
+    }
+
+    if (request.userId !== requesterId) {
+      throw new ForbiddenException('You can only cancel your own requests.');
+    }
+
+    if (request.status !== GroupJoinRequestStatus.PENDING) {
+      throw new ConflictException(
+        `This request is already ${request.status.toLowerCase()}.`,
+      );
+    }
+
+    await this.prisma.groupJoinRequest.update({
+      where: { id: requestId },
+      data: { status: GroupJoinRequestStatus.CANCELLED },
+    });
+  }
+
+  async acceptGroupInvitation(
+    requestId: string,
+    currentUserId: string,
+  ): Promise<void> {
+    const invitation = await this.prisma.groupJoinRequest.findUnique({
+      where: { id: requestId },
+    });
+    if (!invitation) {
+      throw new NotFoundException('Group invitation not found.');
+    }
+
+    if (invitation.userId !== currentUserId) {
+      throw new ForbiddenException(
+        'You can only accept your own invitations.',
+      );
+    }
+
+    if (invitation.status !== GroupJoinRequestStatus.INVITED) {
+      throw new ConflictException(
+        `This invitation is already ${invitation.status.toLowerCase()}.`,
+      );
+    }
+
+    await this.groupsService.addMember(invitation.groupId, currentUserId);
+
+    await this.prisma.groupJoinRequest.update({
+      where: { id: requestId },
+      data: { status: GroupJoinRequestStatus.APPROVED },
+    });
+  }
+
+  async declineGroupInvitation(
+    requestId: string,
+    currentUserId: string,
+  ): Promise<void> {
+    const invitation = await this.prisma.groupJoinRequest.findUnique({
+      where: { id: requestId },
+    });
+    if (!invitation) {
+      throw new NotFoundException('Group invitation not found.');
+    }
+
+    if (invitation.userId !== currentUserId) {
+      throw new ForbiddenException(
+        'You can only decline your own invitations.',
+      );
+    }
+
+    if (invitation.status !== GroupJoinRequestStatus.INVITED) {
+      throw new ConflictException(
+        `This invitation is already ${invitation.status.toLowerCase()}.`,
+      );
+    }
+
+    await this.prisma.groupJoinRequest.update({
+      where: { id: requestId },
+      data: { status: GroupJoinRequestStatus.REJECTED },
+    });
   }
 
   /**
@@ -301,14 +449,15 @@ export class JoinGroupRequestsService {
     groupId: string,
     currentUserId: string,
     status: GroupJoinRequestStatus = GroupJoinRequestStatus.PENDING,
-  ): Promise<GroupJoinRequestDocument[]> {
+  ): Promise<PopulatedGroupJoinRequest[]> {
     // Permission check: ensure the current user is an admin of the group.
-    const group = await this.groupModel.findById(groupId);
+    const group = await this.prisma.group.findUnique({ where: { id: groupId } });
     if (!group) {
       throw new NotFoundException('Group not found.');
     }
-    const member = group.members.find(
-      (m) => m.user.toString() === currentUserId,
+    const member = await this.membershipService.getMembership(
+      groupId,
+      currentUserId,
     );
     if (!member || member.role === 'MEMBER') {
       throw new ForbiddenException(
@@ -316,17 +465,12 @@ export class JoinGroupRequestsService {
       );
     }
 
-    return this.joinRequestModel
-      .find({ group: groupId, status })
-      .populate('user')
-      .populate({
-        path: 'group',
-        populate: {
-          path: 'creator members.user',
-        },
-      })
-      .sort({ createdAt: -1 })
-      .exec();
+    const requests = await this.prisma.groupJoinRequest.findMany({
+      where: { groupId, status },
+      include: WITH_GROUP,
+      orderBy: { createdAt: 'desc' },
+    });
+    return this.attachUsers(requests);
   }
 
   /**
@@ -334,25 +478,44 @@ export class JoinGroupRequestsService {
    */
   async findAll(
     args: GetGroupJoinRequestsArgs,
-  ): Promise<GroupJoinRequestDocument[]> {
+  ): Promise<PopulatedGroupJoinRequest[]> {
     const { skip, limit, groupId, status } = args;
-    const filters: FilterQuery<GroupJoinRequestDocument> = {};
 
-    if (groupId) {
-      filters.group = groupId;
-    }
+    const requests = await this.prisma.groupJoinRequest.findMany({
+      where: {
+        ...(groupId && { groupId }),
+        ...(status && { status }),
+      },
+      orderBy: { createdAt: 'desc' },
+      skip,
+      take: limit,
+      include: WITH_GROUP,
+    });
+    return this.attachUsers(requests);
+  }
 
-    if (status) {
-      filters.status = status;
-    }
+  async findRequestsForUser(
+    userId: string,
+    args: {
+      skip: number;
+      limit: number;
+      groupId?: string;
+      status?: GroupJoinRequestStatus;
+    },
+  ): Promise<PopulatedGroupJoinRequest[]> {
+    const { skip, limit, groupId, status } = args;
 
-    return this.joinRequestModel
-      .find(filters)
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit)
-      .populate('user')
-      .populate('group')
-      .exec();
+    const requests = await this.prisma.groupJoinRequest.findMany({
+      where: {
+        userId,
+        ...(groupId && { groupId }),
+        ...(status && { status }),
+      },
+      orderBy: { createdAt: 'desc' },
+      skip,
+      take: limit,
+      include: WITH_GROUP,
+    });
+    return this.attachUsers(requests);
   }
 }

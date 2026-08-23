@@ -8,9 +8,7 @@ export class PostLoader extends DataLoader<string, PostDocument> {
   constructor(private readonly postsService: PostsService) {
     super(async (keys: readonly string[]) => {
       const posts = await this.postsService.findManyByIds(keys as string[]);
-      const postsMap = new Map(
-        posts.map((post) => [post._id.toString(), post]),
-      );
+      const postsMap = new Map(posts.map((post) => [post.id, post]));
       return keys.map((key) => postsMap.get(key) || null) as any;
     });
   }

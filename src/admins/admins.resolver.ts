@@ -1,23 +1,21 @@
-import { Resolver, Query, Mutation, Args, ID } from '@nestjs/graphql';
+import { Resolver, Query, Mutation, Args, ID, ResolveField, Parent } from '@nestjs/graphql';
 import { AdminsService } from './admins.service';
-import { AdminUser } from './admin-user.model';
+import { AdminUser, AdminRoleGQL } from './admin-user.model';
 import { CreateAdminUserInput } from './dto/create-admin-user.input';
 import { UpdateAdminUserInput } from './dto/update-admin-user.input';
-import { UseGuards } from '@nestjs/common';
+import { BadRequestException, UseGuards } from '@nestjs/common';
 import { AdminAuthGuard } from '../admin-auth/guards/admin-auth.guard'; // Import the guard
-// import { Roles } from '../auth/decorators/roles.decorator';
+import { Roles } from '../auth/decorators/roles.decorator';
+import { RolesGuard } from '../auth/guards/roles.guard';
 import { AdminUserDocument } from './admin-user.schema';
-// import { RolesGuard } from '../auth/guards/roles.guard';
+import { CurrentUser as CurrentAdminUser } from '../admin-auth/decorators/current-admin-user.decorator';
 
 @Resolver(() => AdminUser)
 export class AdminsResolver {
   constructor(private readonly adminUsersService: AdminsService) {}
 
-  // IMPORTANT: All admin resolvers should be protected by authentication and authorization guards.
-  // The @UseGuards and @Roles decorators are examples and assume you'll create these.
-
-  @UseGuards(AdminAuthGuard)
-  // @Roles(AdminRoleGQL.SUPER_ADMIN) // TODO: Implement Role-based access control
+  @UseGuards(AdminAuthGuard, RolesGuard)
+  @Roles(AdminRoleGQL.SUPER_ADMIN)
   @Mutation(() => AdminUser, { name: 'createAdminUser' })
   async createAdminUser(
     @Args('createAdminUserInput') createAdminUserInput: CreateAdminUserInput,
@@ -43,8 +41,8 @@ export class AdminsResolver {
     return adminDoc;
   }
 
-  @UseGuards(AdminAuthGuard)
-  // @Roles(AdminRoleGQL.SUPER_ADMIN) // TODO: Implement Role-based access control
+  @UseGuards(AdminAuthGuard, RolesGuard)
+  @Roles(AdminRoleGQL.SUPER_ADMIN)
   @Mutation(() => AdminUser, { name: 'updateAdminUser' })
   async updateAdminUser(
     @Args('id', { type: () => ID }) id: string,
@@ -53,5 +51,29 @@ export class AdminsResolver {
     return this.adminUsersService.update(id, updateAdminUserInput);
   }
 
-  // Add deleteAdminUser mutation (soft or hard delete)
+  // Soft-delete: flips `isActive` to false, which admin-jwt.strategy.ts
+  // already checks on every request — existing sessions are invalidated
+  // immediately, no separate token revocation needed.
+  @UseGuards(AdminAuthGuard, RolesGuard)
+  @Roles(AdminRoleGQL.SUPER_ADMIN)
+  @Mutation(() => Boolean, { name: 'removeAdminUser' })
+  async removeAdminUser(
+    @Args('id', { type: () => ID }) id: string,
+    @CurrentAdminUser() currentAdmin: AdminUserDocument,
+  ): Promise<boolean> {
+    if (id === currentAdmin.id) {
+      throw new BadRequestException('You cannot deactivate your own account.');
+    }
+    await this.adminUsersService.remove(id);
+    return true;
+  }
+
+  // AdminUserGQL._id predates the migration (most other GQL models use
+  // `id`); kept as an alias here rather than renaming the GraphQL field, to
+  // avoid an admin-panel-breaking schema change. Prisma's AdminUserModel
+  // only has `.id`.
+  @ResolveField('_id', () => ID)
+  resolveAdminId(@Parent() admin: AdminUserDocument): string {
+    return admin.id;
+  }
 }

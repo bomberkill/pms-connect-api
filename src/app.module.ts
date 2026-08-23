@@ -1,14 +1,15 @@
 import { Module } from '@nestjs/common';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
-import { ConfigModule, ConfigService } from '@nestjs/config';
-import { MongooseModule } from '@nestjs/mongoose';
+import { ConfigModule } from '@nestjs/config';
+import { PrismaModule } from './prisma/prisma.module';
 import { GraphQLModule } from '@nestjs/graphql';
 import { ApolloDriver, ApolloDriverConfig } from '@nestjs/apollo';
 import { join } from 'path';
 import { UsersModule } from './users/users.module';
 import { AuthModule } from './auth/auth.module';
 import { AuthService } from './auth/auth.service';
+import { BetterAuthTokenService } from './auth/better-auth-token.service';
 import { FirebaseModule } from './firebase/firebase.module';
 import { AdminsModule } from './admins/admins.module';
 import { AdminAuthModule } from './admin-auth/admin-auth.module';
@@ -27,11 +28,17 @@ import { BookmarkLoader } from './bookmarks/loaders/bookmarks.loader';
 import { BookmarksModule } from './bookmarks/bookmarks.module';
 import { GroupsModule } from './groups/groups.module';
 import { FollowsModule } from './follows/follows.module';
+import { StorageModule } from './storage/storage.module';
+import { ReportsModule } from './reports/reports.module';
 import { CacheModule } from './cache/cache.module';
 import { CacheInvalidationService } from './cache/cache-invalidation.service';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
 import { GqlThrottlerGuard } from './common/guards/gql-throttler.guard';
+import { BlocksModule } from './blocks/blocks.module';
+import { PresenceModule } from './presence/presence.module';
+import { PresenceService } from './presence/presence.service';
+import { MessagesModule } from './messages/messages.module';
 
 @Module({
   imports: [
@@ -41,9 +48,14 @@ import { GqlThrottlerGuard } from './common/guards/gql-throttler.guard';
     }),
     GraphQLModule.forRootAsync<ApolloDriverConfig>({
       driver: ApolloDriver,
-      imports: [DataloaderModule, AuthModule, BookmarksModule],
-      inject: [ModuleRef, AuthService],
-      useFactory: (moduleRef: ModuleRef, authService: AuthService) => ({
+      imports: [DataloaderModule, AuthModule, BookmarksModule, PresenceModule],
+      inject: [ModuleRef, AuthService, BetterAuthTokenService, PresenceService],
+      useFactory: (
+        moduleRef: ModuleRef,
+        authService: AuthService,
+        betterAuthTokenService: BetterAuthTokenService,
+        presenceService: PresenceService,
+      ) => ({
         autoSchemaFile: join(process.cwd(), 'src/schema.gql'),
         installSubscriptionHandlers: true,
         subscriptions: {
@@ -63,10 +75,14 @@ import { GqlThrottlerGuard } from './common/guards/gql-throttler.guard';
               ) {
                 const token = authorizationHeader.replace('Bearer ', '');
                 try {
-                  // Valider le token et récupérer l'utilisateur
-                  const user = await authService.validateAndLinkUser(token);
+                  // Valider le token (JWKS Better Auth) et récupérer l'utilisateur
+                  const payload = await betterAuthTokenService.verify(token);
+                  const user = await authService.validateAndLinkUser(payload);
                   // Attacher l'utilisateur au contexte de la connexion WebSocket
                   (extra as any).user = user;
+                  if (user && 'id' in user) {
+                    presenceService.setOnline(user.id);
+                  }
                   return { user };
                 } catch (e) {
                   console.error(
@@ -80,6 +96,12 @@ import { GqlThrottlerGuard } from './common/guards/gql-throttler.guard';
 
               // Rejeter la connexion si aucun token n'est fourni
               return false;
+            },
+            onDisconnect: (context) => {
+              const user = (context.extra as any)?.user;
+              if (user && 'id' in user) {
+                presenceService.setOffline(user.id);
+              }
             },
           },
         },
@@ -115,7 +137,7 @@ import { GqlThrottlerGuard } from './common/guards/gql-throttler.guard';
 
 query GetAllUsers {
   getAllUsers {
-    _id
+    id
     email
     slug
     firstName
@@ -178,14 +200,7 @@ query GetAllUsers {
         },
       }),
     }),
-    MongooseModule.forRootAsync({
-      imports: [ConfigModule],
-      useFactory: async (configService: ConfigService) => ({
-        uri: configService.get<string>('MONGODB_URI'),
-        dbName: 'pmsconnectdb',
-      }),
-      inject: [ConfigService],
-    }),
+    PrismaModule,
     UsersModule,
     AuthModule,
     FirebaseModule,
@@ -199,6 +214,11 @@ query GetAllUsers {
     BookmarksModule,
     GroupsModule,
     FollowsModule,
+    StorageModule,
+    ReportsModule,
+    BlocksModule,
+    PresenceModule,
+    MessagesModule,
 
     // Cache Module (Redis with in-memory fallback)
     CacheModule,

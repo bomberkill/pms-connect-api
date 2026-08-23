@@ -1,55 +1,215 @@
-import { Injectable, Inject } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Injectable, Inject, forwardRef } from '@nestjs/common';
 import { Messaging } from 'firebase-admin/messaging';
 import { PubSub } from 'graphql-subscriptions';
+import { PrismaService } from '../prisma/prisma.service';
 import { PUB_SUB } from '../pubsub/pubsub.module';
 import { FIREBASE_MESSAGING } from '../firebase/firebase.constants';
-import {
-  Notification,
-  NotificationDocument,
-} from './schemas/notification.schema';
+import type { NotificationDocument } from './schemas/notification.schema';
+import type { Prisma } from '../../generated/prisma/client';
 import { PaginationArgs } from '../posts/dto/pagination.args';
-import { User, UserDocument } from '../users/schemas/users.schema';
+import { UserDocument } from '../users/schemas/users.schema';
 import { CreateNotificationDto } from './dto/create-notification.dto';
+import { GetAdminNotificationsArgs } from './dto/get-admin-notifications.args';
+import { UpdateNotificationPreferencesInput } from './dto/update-notification-preferences.input';
+import { NotificationType } from './schemas/notification.schema';
+// UsersService imports NotificationsService (to send a follow
+// notification) — a genuine circular class dependency. Reflected
+// constructor-param metadata can come back `undefined` for one side of a
+// require cycle, so this uses an explicit forwardRef() token instead of
+// relying on the (possibly-circularly-undefined) reflected type.
+import { UsersService } from '../users/users.service';
+
+// Maps the old polymorphic entityId+onModel pair onto the Prisma exclusive-
+// arc FK columns (postId/commentId/groupId/targetUserId). Kept as a
+// standalone helper since both create() and the push-notification/URL
+// builders need to go the other way (FK -> logical entityId) too.
+function entityFieldsFor(
+  entityId: string | undefined,
+  onModel: CreateNotificationDto['onModel'],
+): Pick<
+  Prisma.NotificationUncheckedCreateInput,
+  'postId' | 'commentId' | 'groupId' | 'targetUserId'
+> {
+  if (!entityId || !onModel) return {};
+  switch (onModel) {
+    case 'Post':
+      return { postId: entityId };
+    case 'Comment':
+      return { commentId: entityId };
+    case 'Group':
+      return { groupId: entityId };
+    case 'User':
+      return { targetUserId: entityId };
+  }
+}
+
+const DEFAULT_PREFERENCES = {
+  notifyReplies: true,
+  notifyMentions: true,
+  notifyConnectionRequests: true,
+  notifyReactions: false,
+  notifyGroupActivity: true,
+  notifyEstablishmentAnnouncements: false,
+  notifyMessages: true,
+  quietHoursEnabled: false,
+  quietHoursStart: null as number | null,
+  quietHoursEnd: null as number | null,
+  weeklyEmailDigest: false,
+};
+
+// Which preference gates a given notification type. `null` means the type
+// is always delivered regardless of preferences — used for types that
+// aren't "engagement noise" the mockup's toggle list covers (the author
+// needs to know their post was rejected even with reactions muted) or
+// that have no corresponding toggle yet (establishment announcements have
+// no notification type wired up anywhere in the codebase today).
+function preferenceFieldFor(
+  type: NotificationType,
+): keyof typeof DEFAULT_PREFERENCES | null {
+  switch (type) {
+    case NotificationType.POST_COMMENT:
+      return 'notifyReplies';
+    case NotificationType.MENTION:
+      return 'notifyMentions';
+    case NotificationType.NEW_FOLLOWER:
+    case NotificationType.CONNECTION_REQUEST:
+    case NotificationType.CONNECTION_ACCEPTED:
+      return 'notifyConnectionRequests';
+    case NotificationType.POST_LIKE:
+    case NotificationType.COMMENT_LIKE:
+      return 'notifyReactions';
+    case NotificationType.GROUP_JOIN_REQUEST:
+    case NotificationType.GROUP_JOIN_REQUEST_ACCEPTED:
+    case NotificationType.GROUP_INVITATION:
+      return 'notifyGroupActivity';
+    case NotificationType.POST_APPROVED:
+    case NotificationType.POST_REJECTED:
+      return null;
+    case NotificationType.MESSAGE:
+      return 'notifyMessages';
+    default:
+      return null;
+  }
+}
+
+function isWithinQuietHours(
+  pref: { quietHoursEnabled: boolean; quietHoursStart: number | null; quietHoursEnd: number | null },
+): boolean {
+  if (!pref.quietHoursEnabled || pref.quietHoursStart == null || pref.quietHoursEnd == null) {
+    return false;
+  }
+  // Server-local hour — no per-user timezone field exists yet, see the
+  // NotificationPreference model comment in schema.prisma.
+  const hour = new Date().getHours();
+  const { quietHoursStart: start, quietHoursEnd: end } = pref;
+  return start <= end
+    ? hour >= start && hour < end
+    : hour >= start || hour < end; // wraps past midnight, e.g. 20 -> 7
+}
+
+function resolveEntityId(notification: NotificationDocument): string | null {
+  return (
+    notification.postId ??
+    notification.commentId ??
+    notification.groupId ??
+    notification.targetUserId ??
+    null
+  );
+}
 
 @Injectable()
 export class NotificationsService {
   constructor(
-    @InjectModel(Notification.name)
-    private notificationModel: Model<NotificationDocument>,
+    private readonly prisma: PrismaService,
     @Inject(PUB_SUB) private readonly pubSub: PubSub,
-    @InjectModel(User.name) private userModel: Model<UserDocument>,
+    // User now lives in Postgres — no more @InjectModel(User.name); Prisma
+    // via UsersService instead of a Mongoose model on this connection.
+    @Inject(forwardRef(() => UsersService))
+    private readonly usersService: UsersService,
     @Inject(FIREBASE_MESSAGING) private readonly firebaseMessaging: Messaging,
   ) { }
 
   async create(dto: CreateNotificationDto): Promise<void> {
-    const { recipients, sender, ...notificationData } = dto;
+    const { recipients, sender, type, entityId, onModel } = dto;
 
     // Filter out the sender to prevent self-notification
-    const finalRecipients = recipients.filter((r) => r !== sender);
+    let finalRecipients = recipients.filter((r) => r !== sender);
 
     if (finalRecipients.length === 0) {
       return;
     }
 
-    const notificationsToCreate = finalRecipients.map((recipientId) => ({
-      recipient: recipientId,
-      sender,
-      ...notificationData,
-    }));
+    // Gate on recipient preferences (missing row = defaults, see
+    // getPreferences). Types with no preferenceFieldFor mapping are
+    // always delivered.
+    const preferenceField = preferenceFieldFor(type);
+    let quietHoursRecipientIds = new Set<string>();
+    if (preferenceField) {
+      const rows = await this.prisma.notificationPreference.findMany({
+        where: { userId: { in: finalRecipients } },
+      });
+      const byUserId = new Map(rows.map((r) => [r.userId, r]));
+      finalRecipients = finalRecipients.filter((userId) => {
+        const pref = byUserId.get(userId) ?? DEFAULT_PREFERENCES;
+        return pref[preferenceField] !== false;
+      });
+      quietHoursRecipientIds = new Set(
+        finalRecipients.filter((userId) =>
+          isWithinQuietHours(byUserId.get(userId) ?? DEFAULT_PREFERENCES),
+        ),
+      );
+    }
 
-    const createdNotifications = await this.notificationModel.insertMany(
-      notificationsToCreate,
-    );
+    if (finalRecipients.length === 0) {
+      return;
+    }
 
-    // Publish events and send push notifications for each created document
+    const entityFields = entityFieldsFor(entityId, onModel);
+
+    const createdNotifications = await this.prisma.notification.createManyAndReturn({
+      data: finalRecipients.map((recipientId) => ({
+        recipientId,
+        senderId: sender,
+        type,
+        ...entityFields,
+      })),
+    });
+
+    // Publish events and send push notifications for each created row —
+    // quiet hours suppress the push only, the in-app notification still
+    // gets created and shows up next time the recipient opens the app.
     for (const notification of createdNotifications) {
       this.pubSub.publish('NOTIFICATION_ADDED', {
         notificationAdded: notification,
       });
-      this.sendPushNotification(notification);
+      if (!quietHoursRecipientIds.has(notification.recipientId)) {
+        this.sendPushNotification(notification);
+      }
     }
+  }
+
+  /**
+   * Returns the caller's notification preferences, merged with defaults
+   * for any field not yet customized (or if no row exists at all — no
+   * backfill needed for pre-existing users).
+   */
+  async getPreferences(userId: string) {
+    const pref = await this.prisma.notificationPreference.findUnique({
+      where: { userId },
+    });
+    return { ...DEFAULT_PREFERENCES, ...pref };
+  }
+
+  async updatePreferences(
+    userId: string,
+    input: UpdateNotificationPreferencesInput,
+  ) {
+    const pref = await this.prisma.notificationPreference.upsert({
+      where: { userId },
+      create: { userId, ...input },
+      update: { ...input },
+    });
+    return { ...DEFAULT_PREFERENCES, ...pref };
   }
 
   async findForUser(
@@ -57,62 +217,74 @@ export class NotificationsService {
     paginationArgs: PaginationArgs,
   ): Promise<NotificationDocument[]> {
     const { skip, limit } = paginationArgs;
-    return this.notificationModel
-      .find({ recipient: userId })
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit)
-      .populate('sender') // Eagerly load sender details
-      .exec();
+    return this.prisma.notification.findMany({
+      where: { recipientId: userId },
+      orderBy: { createdAt: 'desc' },
+      skip,
+      take: limit,
+    });
   }
 
   async markAsRead(
     notificationIds: string[],
     userId: string,
   ): Promise<boolean> {
-    const result = await this.notificationModel.updateMany(
-      { _id: { $in: notificationIds }, recipient: userId }, // Security check: user must be the recipient
-      { $set: { read: true } },
-    );
-    return result.modifiedCount > 0;
+    const result = await this.prisma.notification.updateMany({
+      where: { id: { in: notificationIds }, recipientId: userId }, // Security check: user must be the recipient
+      data: { read: true },
+    });
+    return result.count > 0;
   }
 
   async countUnread(userId: string): Promise<number> {
-    return this.notificationModel.countDocuments({ recipient: userId, read: false }).exec();
+    return this.prisma.notification.count({
+      where: { recipientId: userId, read: false },
+    });
   }
 
-  // We accept a partial document here because the object from insertMany is not fully populated.
-  // The `recipient` and `sender` will be string IDs.
+  async adminFindAll(
+    args: GetAdminNotificationsArgs,
+  ): Promise<NotificationDocument[]> {
+    const { skip, limit, recipientId, senderId, type, read } = args;
+
+    return this.prisma.notification.findMany({
+      where: {
+        ...(recipientId && { recipientId }),
+        ...(senderId && { senderId }),
+        ...(type && { type }),
+        ...(typeof read === 'boolean' && { read }),
+      },
+      orderBy: { createdAt: 'desc' },
+      skip,
+      take: limit,
+    });
+  }
+
+  async adminCountUnread(recipientId?: string): Promise<number> {
+    return this.prisma.notification.count({
+      where: { read: false, ...(recipientId && { recipientId }) },
+    });
+  }
+
   private async sendPushNotification(
-    notification: Omit<
-      Partial<
-        Pick<NotificationDocument, 'recipient' | 'sender' | 'type' | 'entityId'>
-      >,
-      'recipient' | 'sender'
-    > & {
-      recipient: string;
-      sender: string;
-      type: NotificationDocument['type']; // Ensure type is required
-    },
+    notification: NotificationDocument,
   ): Promise<void> {
     try {
-      const recipient = await this.userModel
-        .findById(notification.recipient)
-        .select('fcmTokens')
-        .lean();
+      const recipient = await this.usersService.findById(notification.recipientId);
       if (
         !recipient ||
         !recipient.fcmTokens ||
         recipient.fcmTokens.length === 0
       ) {
-        console.log(`No FCM tokens found for user ${notification.recipient}`);
+        console.log(`No FCM tokens found for user ${notification.recipientId}`);
         return;
       }
 
       // We need the sender's details to build the message
-      const sender = await this.userModel.findById(notification.sender).lean();
+      const sender = await this.usersService.findById(notification.senderId);
       if (!sender) return;
 
+      const entityId = resolveEntityId(notification);
       const message = this.getNotificationMessage(
         notification,
         sender as UserDocument,
@@ -128,9 +300,9 @@ export class NotificationsService {
           title: 'PMS-Connect',
           body: message,
           type: notification.type,
-          entityId: notification.entityId?.toString() || '',
-          senderId: notification.sender.toString(),
-          url: this.getNotificationUrl(notification),
+          entityId: entityId || '',
+          senderId: notification.senderId,
+          url: this.getNotificationUrl(notification, entityId),
         },
         // Android specific config (High priority for data delivery)
         android: {
@@ -172,10 +344,15 @@ export class NotificationsService {
         });
 
         if (tokensToRemove.length > 0) {
-          console.log(`Removing ${tokensToRemove.length} invalid tokens for user ${notification.recipient}`);
-          await this.userModel.updateOne(
-            { _id: notification.recipient },
-            { $pull: { fcmTokens: { $in: tokensToRemove } } }
+          console.log(`Removing ${tokensToRemove.length} invalid tokens for user ${notification.recipientId}`);
+          await Promise.all(
+            tokensToRemove.map((token) =>
+              this.usersService.manageFcmToken(
+                notification.recipientId,
+                token,
+                'remove',
+              ),
+            ),
           );
         }
       }
@@ -212,6 +389,8 @@ export class NotificationsService {
         NEW_FOLLOWER: `${senderName} started following you.`,
         CONNECTION_REQUEST: `${senderName} sent you a connection request.`,
         CONNECTION_ACCEPTED: `${senderName} accepted your connection request.`,
+        POST_APPROVED: 'Your post was approved and is now published.',
+        POST_REJECTED: 'Your post was rejected by a group moderator.',
         default: 'You have a new notification.',
       },
       fr: {
@@ -221,6 +400,8 @@ export class NotificationsService {
         NEW_FOLLOWER: `${senderName} a commencé à vous suivre.`,
         CONNECTION_REQUEST: `${senderName} vous a envoyé une demande de connexion.`,
         CONNECTION_ACCEPTED: `${senderName} a accepté votre demande de connexion.`,
+        POST_APPROVED: 'Votre publication a été approuvée et est maintenant publiée.',
+        POST_REJECTED: 'Votre publication a été rejetée par un modérateur du groupe.',
         default: 'Vous avez une nouvelle notification.',
       },
     };
@@ -239,22 +420,29 @@ export class NotificationsService {
         return messages[lang]?.CONNECTION_REQUEST || messages.en.CONNECTION_REQUEST;
       case 'CONNECTION_ACCEPTED':
         return messages[lang]?.CONNECTION_ACCEPTED || messages.en.CONNECTION_ACCEPTED;
+      case 'POST_APPROVED':
+        return messages[lang]?.POST_APPROVED || messages.en.POST_APPROVED;
+      case 'POST_REJECTED':
+        return messages[lang]?.POST_REJECTED || messages.en.POST_REJECTED;
       default:
         return messages[lang]?.default || messages.en.default;
     }
   }
 
   private getNotificationUrl(
-    notification: Pick<NotificationDocument, 'type'> & { entityId?: any; sender?: any },
+    notification: Pick<NotificationDocument, 'type'>,
+    entityId: string | null,
   ): string {
     switch (notification.type) {
       case 'POST_LIKE':
       case 'POST_COMMENT':
-        return `/post/${notification.entityId}`;
+      case 'POST_APPROVED':
+      case 'POST_REJECTED':
+        return `/post/${entityId}`;
       case 'NEW_FOLLOWER':
       case 'CONNECTION_REQUEST':
       case 'CONNECTION_ACCEPTED':
-        // Ideally redirect to profile, but might need slug. 
+        // Ideally redirect to profile, but might need slug.
         // fallback to notifications page or use ID if frontend handles it
         return `/notifications`;
       default:

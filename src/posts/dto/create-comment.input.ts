@@ -2,7 +2,6 @@ import { InputType, Field, ID } from '@nestjs/graphql';
 import {
   IsString,
   IsNotEmpty,
-  IsMongoId,
   IsOptional,
   ValidateNested,
   IsArray,
@@ -14,7 +13,7 @@ import { Type } from 'class-transformer';
 export class CreateCommentInput {
   @Field(() => ID)
   @IsNotEmpty()
-  @IsMongoId()
+  @IsString()
   postId: string;
 
   @Field()

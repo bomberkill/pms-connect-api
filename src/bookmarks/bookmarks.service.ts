@@ -4,13 +4,8 @@ import {
   Inject,
   forwardRef,
 } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
-import {
-  Bookmark,
-  BookmarkableType,
-  BookmarkDocument,
-} from './schemas/bookmark.schema';
-import { Model, Types } from 'mongoose';
+import { PrismaService } from '../prisma/prisma.service';
+import { BookmarkableType } from './schemas/bookmark.schema';
 import { PostsService } from 'src/posts/posts.service';
 import { CommentsService } from 'src/posts/comments.service';
 import { PaginationArgs } from 'src/posts/dto/pagination.args';
@@ -19,7 +14,7 @@ import { BookmarkLoaderKey } from './loaders/bookmarks.loader';
 @Injectable()
 export class BookmarksService {
   constructor(
-    @InjectModel(Bookmark.name) private bookmarkModel: Model<BookmarkDocument>,
+    private readonly prisma: PrismaService,
     @Inject(forwardRef(() => PostsService))
     private readonly postsService: PostsService,
     @Inject(forwardRef(() => CommentsService))
@@ -34,30 +29,25 @@ export class BookmarksService {
     itemId: string,
     itemType: BookmarkableType,
   ): Promise<boolean> {
-    // 1. Valider que l'item à mettre en favori existe
-    if (itemType === BookmarkableType.POST) {
-      await this.postsService.findOne(itemId); // Lance une NotFoundException si non trouvé
-    } else if (itemType === BookmarkableType.COMMENT) {
-      await this.commentsService.findOne(itemId); // Lance une NotFoundException si non trouvé
+    const isPost = itemType === BookmarkableType.POST;
+
+    // Valider que l'item à mettre en favori existe
+    if (isPost) {
+      await this.postsService.findOne(itemId);
+    } else {
+      await this.commentsService.findOne(itemId);
     }
 
-    const query = {
-      user: userId,
-      item: new Types.ObjectId(itemId),
-      itemType: itemType,
-    };
-
     try {
-      await this.bookmarkModel.updateOne(
-        query,
-        { $setOnInsert: query },
-        { upsert: true },
-      );
+      await this.prisma.bookmark.create({
+        data: isPost
+          ? { userId, postId: itemId }
+          : { userId, commentId: itemId },
+      });
       return true;
     } catch (error) {
-      // Le code 11000 correspond à une violation de l'index unique dans MongoDB
-      if (error.code === 11000) {
-        // Si l'upsert échoue à cause d'une race condition, l'item est déjà en favori.
+      // Unique constraint violation — already bookmarked (race condition).
+      if (error.code === 'P2002') {
         return true;
       }
       throw error;
@@ -68,12 +58,11 @@ export class BookmarksService {
    * Supprime un item des favoris d'un utilisateur.
    */
   async removeBookmark(userId: string, itemId: string): Promise<boolean> {
-    const result = await this.bookmarkModel.deleteOne({
-      user: userId,
-      item: new Types.ObjectId(itemId),
+    const result = await this.prisma.bookmark.deleteMany({
+      where: { userId, OR: [{ postId: itemId }, { commentId: itemId }] },
     });
 
-    if (result.deletedCount === 0) {
+    if (result.count === 0) {
       throw new NotFoundException('Bookmark not found.');
     }
 
@@ -83,23 +72,22 @@ export class BookmarksService {
   /**
    * Récupère la liste des favoris pour un utilisateur.
    */
-  async findUserBookmarks(
-    userId: string,
-    paginationArgs: PaginationArgs,
-  ): Promise<BookmarkDocument[]> {
-    return this.bookmarkModel
-      .find({ user: userId })
-      .sort({ createdAt: -1 }) // Les plus récents en premier
-      .skip(paginationArgs.skip)
-      .limit(paginationArgs.limit)
-      .populate('item') // Très important: récupère les détails du Post ou Comment
-      .exec();
+  async findUserBookmarks(userId: string, paginationArgs: PaginationArgs) {
+    return this.prisma.bookmark.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+      skip: paginationArgs.skip,
+      take: paginationArgs.limit,
+      include: {
+        post: { include: { media: true } },
+        comment: { include: { media: true } },
+      },
+    });
   }
+
   /**
    * Checks which items from a given list have been bookmarked by a specific user.
    * Essential for the BookmarkLoader.
-   * @param keys - An array of { userId, itemId } objects.
-   * @returns A Set of itemIds that the user has bookmarked.
    */
   async findUserBookmarkedItems(
     keys: readonly BookmarkLoaderKey[],
@@ -108,13 +96,15 @@ export class BookmarksService {
     if (!userId) return new Set();
 
     const itemIds = keys.map((k) => k.itemId);
-    const bookmarks = await this.bookmarkModel
-      .find({
-        user: userId,
-        item: { $in: itemIds },
-      })
-      .select('item')
-      .lean();
-    return new Set(bookmarks.map((bookmark) => bookmark.item.toString()));
+    const bookmarks = await this.prisma.bookmark.findMany({
+      where: {
+        userId,
+        OR: [{ postId: { in: itemIds } }, { commentId: { in: itemIds } }],
+      },
+      select: { postId: true, commentId: true },
+    });
+    return new Set(
+      bookmarks.map((bookmark) => bookmark.postId ?? bookmark.commentId),
+    );
   }
 }

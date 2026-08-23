@@ -1,48 +1,32 @@
 import { Injectable } from '@nestjs/common';
 import { UsersService } from '../users/users.service';
 import { UserDocument } from '../users/schemas/users.schema';
-import * as admin from 'firebase-admin';
 import { CheckUserExistsResponse } from './auth.model';
+import { BetterAuthTokenPayload } from './better-auth-token.service';
 
 @Injectable()
 export class AuthService {
   constructor(private readonly usersService: UsersService) {}
 
+  /**
+   * Takes an already-verified Better Auth token payload (see
+   * BetterAuthTokenService) and finds the matching domain user profile, or
+   * returns a transient shape so the frontend can call `createUser`.
+   */
   async validateAndLinkUser(
-    firebaseToken: string,
-  ): Promise<UserDocument | { firebaseUid: string } | null> {
-    // const { uid, email } = firebaseToken;
-    if (!firebaseToken) {
-      throw new Error('No Firebase token provided');
-    }
-    let decodedToken: admin.auth.DecodedIdToken;
-    try {
-      decodedToken = await admin.auth().verifyIdToken(firebaseToken);
-    } catch (err) {
-      console.error('Firebase token invalid:', err);
-      throw new Error('Invalid Firebase token');
-    }
-    if (!decodedToken) {
-      throw new Error('Invalid Firebase token');
-    }
-    const { uid, email } = decodedToken;
-
-    if (!uid) {
-      console.log('Firebase token:', firebaseToken);
-      throw new Error('No Firebase UID found in token');
+    payload: BetterAuthTokenPayload,
+  ): Promise<UserDocument | { authUserId: string } | null> {
+    const { sub: authUserId } = payload;
+    if (!authUserId) {
+      throw new Error('No subject found in Better Auth token');
     }
 
-    if (!email) {
-      throw new Error('No Firebase email found in token');
-    }
-
-    const user = await this.usersService.findByFirebaseUid(uid);
-    return user || { firebaseUid: uid };
+    const user = await this.usersService.findByAuthUserId(authUserId);
+    return user || { authUserId };
   }
 
   /**
-   * Checks if a user exists in Firebase Authentication using their email.
-   * This uses the Admin SDK and is not subject to email enumeration protection.
+   * Checks if a user exists in our database using their email.
    * @param email The email to check.
    * @returns `true` if the user exists, `false` otherwise.
    */
@@ -61,7 +45,7 @@ export class AuthService {
   }
 
   /**
-   * Checks if a user exists in Firebase Authentication using their phone number.
+   * Checks if a user exists in our database using their phone number.
    * @param phoneNumber The phone number to check (must be in E.164 format).
    * @returns An object indicating if the user exists and their sign-in providers.
    */
@@ -80,11 +64,4 @@ export class AuthService {
 
     return { exists: true, hasPassword, providers: user.providers };
   }
-
-  /**
-   * Checks if a user exists in Firebase Authentication using their email.
-   * This uses the Admin SDK and is not subject to email enumeration protection.
-   * @param email The email to check.
-   * @returns `true` if the user exists, `false` otherwise.
-   */
 }

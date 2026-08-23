@@ -3,38 +3,28 @@ import {
   ConflictException,
   NotFoundException,
 } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
-import { Follow, FollowDocument } from './schemas/follow.schema';
+import { PrismaService } from '../prisma/prisma.service';
 import { PaginationArgs } from '../posts/dto/pagination.args';
 
 @Injectable()
 export class FollowsService {
-  constructor(
-    @InjectModel(Follow.name) private followModel: Model<FollowDocument>,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   /**
    * Follow a user
    */
-  async followUser(
-    followerId: string,
-    followingId: string,
-  ): Promise<FollowDocument> {
-    // Prevent self-follow
+  async followUser(followerId: string, followingId: string) {
     if (followerId === followingId) {
       throw new ConflictException('You cannot follow yourself');
     }
 
     try {
-      const follow = new this.followModel({
-        follower: followerId,
-        following: followingId,
+      return await this.prisma.follow.create({
+        data: { followerId, followingId },
       });
-      return await follow.save();
     } catch (error) {
-      // Duplicate key error (already following)
-      if (error.code === 11000) {
+      // Unique constraint violation (already following)
+      if (error.code === 'P2002') {
         throw new ConflictException('Already following this user');
       }
       throw error;
@@ -44,75 +34,68 @@ export class FollowsService {
   /**
    * Unfollow a user
    */
-  async unfollowUser(
-    followerId: string,
-    followingId: string,
-  ): Promise<boolean> {
-    const result = await this.followModel.deleteOne({
-      follower: followerId,
-      following: followingId,
-    });
-
-    if (result.deletedCount === 0) {
-      throw new NotFoundException('Follow relationship not found');
+  async unfollowUser(followerId: string, followingId: string): Promise<boolean> {
+    try {
+      await this.prisma.follow.delete({
+        where: { followerId_followingId: { followerId, followingId } },
+      });
+      return true;
+    } catch (error) {
+      if (error.code === 'P2025') {
+        throw new NotFoundException('Follow relationship not found');
+      }
+      throw error;
     }
-
-    return true;
   }
 
   /**
    * Get followers of a user (users who follow this user)
    */
-  async getFollowers(
-    userId: string,
-    pagination: PaginationArgs,
-  ): Promise<FollowDocument[]> {
-    return this.followModel
-      .find({ following: userId })
-      .sort({ createdAt: -1 })
-      .skip(pagination.skip)
-      .limit(pagination.limit)
-      .populate('follower')
-      .exec();
+  async getFollowers(userId: string, pagination: PaginationArgs) {
+    const follows = await this.prisma.follow.findMany({
+      where: { followingId: userId },
+      orderBy: { createdAt: 'desc' },
+      skip: pagination.skip,
+      take: pagination.limit,
+      include: { follower: true },
+    });
+    return follows.map((f) => f.follower);
   }
 
   /**
    * Get following of a user (users this user follows)
    */
-  async getFollowing(
-    userId: string,
-    pagination: PaginationArgs,
-  ): Promise<FollowDocument[]> {
-    return this.followModel
-      .find({ follower: userId })
-      .sort({ createdAt: -1 })
-      .skip(pagination.skip)
-      .limit(pagination.limit)
-      .populate('following')
-      .exec();
+  async getFollowing(userId: string, pagination: PaginationArgs) {
+    const follows = await this.prisma.follow.findMany({
+      where: { followerId: userId },
+      orderBy: { createdAt: 'desc' },
+      skip: pagination.skip,
+      take: pagination.limit,
+      include: { following: true },
+    });
+    return follows.map((f) => f.following);
   }
 
   /**
    * Get followers count
    */
   async getFollowersCount(userId: string): Promise<number> {
-    return this.followModel.countDocuments({ following: userId });
+    return this.prisma.follow.count({ where: { followingId: userId } });
   }
 
   /**
    * Get following count
    */
   async getFollowingCount(userId: string): Promise<number> {
-    return this.followModel.countDocuments({ follower: userId });
+    return this.prisma.follow.count({ where: { followerId: userId } });
   }
 
   /**
    * Check if user A follows user B
    */
   async isFollowing(followerId: string, followingId: string): Promise<boolean> {
-    const follow = await this.followModel.findOne({
-      follower: followerId,
-      following: followingId,
+    const follow = await this.prisma.follow.findUnique({
+      where: { followerId_followingId: { followerId, followingId } },
     });
     return !!follow;
   }
@@ -121,25 +104,21 @@ export class FollowsService {
    * Get list of user IDs that a user follows (for feed generation)
    */
   async getFollowingIds(userId: string): Promise<string[]> {
-    const follows = await this.followModel
-      .find({ follower: userId })
-      .select('following')
-      .lean()
-      .exec();
-
-    return follows.map((f) => f.following.toString());
+    const follows = await this.prisma.follow.findMany({
+      where: { followerId: userId },
+      select: { followingId: true },
+    });
+    return follows.map((f) => f.followingId);
   }
 
   /**
    * Get list of follower IDs (for notifications fanout)
    */
   async getFollowerIds(userId: string): Promise<string[]> {
-    const follows = await this.followModel
-      .find({ following: userId })
-      .select('follower')
-      .lean()
-      .exec();
-
-    return follows.map((f) => f.follower.toString());
+    const follows = await this.prisma.follow.findMany({
+      where: { followingId: userId },
+      select: { followerId: true },
+    });
+    return follows.map((f) => f.followerId);
   }
 }

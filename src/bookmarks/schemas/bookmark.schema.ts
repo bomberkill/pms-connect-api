@@ -1,37 +1,11 @@
-import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Document, SchemaTypes } from 'mongoose';
-import { Comment } from 'src/posts/schemas/comments.schema';
-import { Post } from 'src/posts/schemas/posts.schema';
-import { User } from 'src/users/schemas/users.schema';
+// Thin compatibility shim — see users/schemas/users.schema.ts for rationale.
+// Prisma's Bookmark model doesn't need a stored `itemType` discriminator —
+// it uses the same "exclusive arc" (postId/commentId) as Like — but
+// BookmarkableType stays as a plain enum since it's still a real part of
+// the GraphQL-facing API (addBookmark/removeBookmark take an itemType arg).
+export type { BookmarkModel as BookmarkDocument } from '../../../generated/prisma/models';
 
 export enum BookmarkableType {
   POST = 'Post',
   COMMENT = 'Comment',
 }
-
-export type BookmarkDocument = Bookmark & Document;
-
-@Schema({
-  timestamps: { createdAt: true, updatedAt: false }, // On ne garde que createdAt
-  collection: 'bookmarks',
-})
-export class Bookmark {
-  @Prop({
-    type: SchemaTypes.ObjectId,
-    ref: 'User',
-    required: true,
-    index: true,
-  })
-  user: User;
-
-  @Prop({ type: String, required: true, enum: Object.values(BookmarkableType) })
-  itemType: BookmarkableType;
-
-  @Prop({ type: SchemaTypes.ObjectId, required: true, refPath: 'itemType' })
-  item: Post | Comment;
-}
-
-export const BookmarkSchema = SchemaFactory.createForClass(Bookmark);
-
-// Index unique pour empêcher un utilisateur de mettre en favori le même item plusieurs fois.
-BookmarkSchema.index({ user: 1, item: 1, itemType: 1 }, { unique: true });

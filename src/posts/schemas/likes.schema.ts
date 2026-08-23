@@ -1,33 +1,8 @@
-import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Document, Types, SchemaTypes } from 'mongoose';
-import { User } from '../../users/schemas/users.schema';
-
-export type LikeDocument = Like & Document;
-
-@Schema({ timestamps: { createdAt: true, updatedAt: false } })
-export class Like {
-  @Prop({
-    type: SchemaTypes.ObjectId,
-    ref: 'User',
-    required: true,
-    index: true,
-  })
-  user: User;
-
-  // @Prop({ type: SchemaTypes.ObjectId, ref: 'Post', required: true, index: true })
-  // post: Post;
-
-  @Prop({ type: SchemaTypes.ObjectId, required: true, index: true })
-  likeableId: Types.ObjectId;
-
-  @Prop({
-    type: String,
-    required: true,
-    index: true,
-    enum: ['Post', 'Comment'],
-  })
-  likeableType: string;
-}
-
-export const LikeSchema = SchemaFactory.createForClass(Like);
-LikeSchema.index({ user: 1, likeableId: 1, likeableType: 1 }, { unique: true }); // Un utilisateur ne peut aimer un post qu'une seule fois
+// Thin compatibility shim — see users/schemas/users.schema.ts for rationale.
+// The old Mongoose shape was polymorphic (`likeableId` + `likeableType`
+// discriminator, no real FK). Prisma models this as an "exclusive arc"
+// instead (nullable `postId`/`commentId`, exactly one set — enforced by a
+// CHECK constraint, see prisma/migrations). LikesService's public method
+// signatures still take `(likeableId, likeableType)` for minimal resolver
+// disruption; only its internals map to postId/commentId.
+export type { LikeModel as LikeDocument } from '../../../generated/prisma/models';

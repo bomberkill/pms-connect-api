@@ -1,0 +1,635 @@
+// DRAFT — proposed relational schema for the MongoDB -> PostgreSQL migration.
+// Not wired to anything yet: Prisma isn't installed, no service reads this.
+// This file exists purely as a concrete artifact to review/iterate on before
+// any implementation starts.
+//
+// Design decisions baked in here (see conversation for rationale):
+// - IDs are cuid() strings (opaque, non-sequential, like Mongo ObjectId).
+// - User/IndividualUser/LegalEntityUser collapsed into one `User` table with
+//   nullable type-specific columns (avoids a join on the hottest read path:
+//   author/creator/recipient fields resolved via DataLoader everywhere).
+// - `User.following`/`User.followers` arrays are DROPPED — `Follow` is now
+//   the single source of truth (the two representations exist in parallel
+//   in Mongo today, a redundancy this migration removes).
+// - `User.connections` array is DROPPED — "my connections" is derived by
+//   querying ConnectionRequest where status = ACCEPTED, instead of
+//   maintaining a third, independently-synced state.
+// - `User.blockedUsers` array becomes a real `Block` table.
+// - `professionalAccreditation` (array of embedded subdocs) becomes its own
+//   table — it's a genuine one-to-many relation, not a scalar attribute.
+// - Polymorphic refs (Like.likeableId/Type, Bookmark.item/itemType,
+//   Notification.entityId/onModel) become "exclusive arc" nullable FKs
+//   (exactly one of postId/commentId/... is set per row) instead of a
+//   loose id+type pair — gives real FK integrity and cascading deletes.
+//   NOTE: Postgres unique constraints treat NULL as distinct, so the
+//   uniqueness guarantees below (no double-like, no double-bookmark) need
+//   partial unique indexes added via a raw SQL migration step — Prisma's
+//   schema DSL can't express `WHERE commentId IS NULL` directly. Flagged
+//   inline where relevant; not a blocker, just a follow-up migration edit.
+// - Post finally gets a real `groupId` column — Mongo had an index on a
+//   `group` field that was never actually added to the schema (dead code
+//   from an unfinished feature); this migration is the chance to finish it
+//   properly, or drop it if group-posts aren't actually wanted.
+
+// Prisma 7 moved connection config out of schema.prisma: the datasource
+// block below only declares the provider, and the actual connection
+// (DATABASE_URL, driver adapter) lives in prisma.config.ts + the
+// PrismaClient constructor at runtime. See https://pris.ly/d/prisma7-client-config.
+//
+// `prisma-client` (not the legacy `prisma-client-js`) is Prisma 7's current
+// generator: emits plain TypeScript into `generated/prisma` instead of a
+// binary-backed client under node_modules, and requires a driver adapter
+// (@prisma/adapter-pg here) at construction time — see prisma.service.ts.
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------- Enums ----------
+
+enum UserType {
+  INDIVIDUAL
+  LEGAL_ENTITY
+}
+
+enum AccountStatus {
+  ACTIVE
+  PENDING_VERIFICATION
+  SUSPENDED
+  DEACTIVATED
+}
+
+enum Speciality {
+  MEDICAL_DOCTORS
+  DENTAL_SURGEONS
+  PHARMACISTS
+  NURSES
+  SANITARY_ENGINEERING
+  MEDICO_SANITARY_TECHNICIANS
+  PUBLIC_HEALTH_ADMINISTRATION
+  MIDWIVES
+  MEDICAL_REPRESENTATIVES
+  CAREGIVERS
+  PHARMACY_ASSISTANTS
+  OTHER_HEALTH_AUXILIARY
+}
+
+enum EntityType {
+  HOSPITAL
+  CLINIC
+  LABORATORY
+  PHARMACEUTICAL_COMPANY
+  MEDICAL_ASSOCIATION
+  HEALTH_TRAINING_INSTITUTION
+  COMPANY
+  IMAGING_CENTER
+  ASSOCIATION
+}
+
+enum ConnectionRequestStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  CANCELLED
+  TERMINATED
+}
+
+enum PostStatus {
+  PUBLISHED
+  ARCHIVED
+  PENDING
+  REJECTED
+}
+
+enum CommentStatus {
+  VISIBLE
+  DELETED
+}
+
+enum ReportReason {
+  PATIENT_DATA
+  MEDICAL_MISINFORMATION
+  ADVERTISING
+  TITLE_IMPERSONATION
+  OTHER
+}
+
+enum ReportStatus {
+  PENDING
+  REVIEWED
+  DISMISSED
+}
+
+enum MediaType {
+  IMAGE
+  VIDEO
+  DOCUMENT
+}
+
+enum GroupPrivacy {
+  PUBLIC
+  PRIVATE
+  SECRET
+}
+
+enum GroupMemberRole {
+  ADMIN
+  MODERATOR
+  MEMBER
+}
+
+enum GroupJoinRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+  INVITED
+}
+
+enum NotificationType {
+  NEW_FOLLOWER
+  CONNECTION_REQUEST
+  CONNECTION_ACCEPTED
+  POST_LIKE
+  COMMENT_LIKE
+  POST_COMMENT
+  GROUP_JOIN_REQUEST
+  GROUP_JOIN_REQUEST_ACCEPTED
+  GROUP_INVITATION
+  POST_APPROVED
+  POST_REJECTED
+  MENTION
+  MESSAGE
+}
+
+enum AdminRole {
+  SUPER_ADMIN
+  CONTENT_MODERATOR
+  USER_MANAGER
+  SUPPORT_AGENT
+}
+
+// ---------- Users ----------
+
+model User {
+  id          String   @id @default(cuid())
+  authUserId  String   @unique
+  email       String   @unique
+  phoneNumber String   @default("")
+  slug        String   @unique
+  userType    UserType
+
+  bio           String?
+  profilePicUrl String?
+  coverPicUrl   String?
+  websiteUrl    String?
+
+  // Auto-active on creation for now — the admin review panel that would
+  // otherwise gate this via updateAccountStatus doesn't exist yet, and
+  // leaving the old PENDING_VERIFICATION default would permanently strand
+  // every new registration with no way to ever become usable. Revert this
+  // default (and re-require review) once that panel ships.
+  accountStatus AccountStatus @default(ACTIVE)
+  language      String        @default("en")
+
+  // Native Postgres arrays — multi-valued attributes, not relations to
+  // other tables, so no join table needed (Prisma maps String[] directly).
+  providers  String[] @default([])
+  fcmTokens  String[] @default([])
+
+  lastLoginAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  // Location — flattened rather than kept as embedded JSON, since it's
+  // simple structured data always fetched alongside the user and never
+  // queried independently.
+  addressLine1    String?
+  addressLine2    String?
+  city            String?
+  stateOrProvince String?
+  postalCode      String?
+  country         String?
+
+  // Individual-only (nullable when userType = LEGAL_ENTITY)
+  firstName         String?
+  lastName          String?
+  speciality        Speciality?
+  professionalTitle String?
+
+  // Legal-entity-only (nullable when userType = INDIVIDUAL)
+  entityName String?
+  entityType EntityType?
+
+  // ---------- Relations ----------
+
+  professionalAccreditations ProfessionalAccreditation[]
+
+  postsAuthored    Post[]    @relation("PostAuthor")
+  commentsAuthored Comment[] @relation("CommentAuthor")
+  likes            Like[]
+  bookmarks        Bookmark[]
+
+  groupsCreated     Group[]            @relation("GroupCreator")
+  groupMemberships  GroupMembership[]
+  groupJoinRequests GroupJoinRequest[]
+
+  notificationsReceived Notification[] @relation("NotificationRecipient")
+  notificationsSent     Notification[] @relation("NotificationSender")
+  notificationsAboutMe  Notification[] @relation("NotificationTargetUser")
+
+  connectionRequestsSent     ConnectionRequest[] @relation("ConnectionRequester")
+  connectionRequestsReceived ConnectionRequest[] @relation("ConnectionRecipient")
+
+  following Follow[] @relation("Follower") // rows where I am the follower
+  followers Follow[] @relation("Following") // rows where I am followed
+
+  blocking  Block[] @relation("Blocker")
+  blockedBy Block[] @relation("Blocked")
+
+  notificationPreference NotificationPreference?
+
+  reportsMade     Report[] @relation("Reporter")
+  reportsReceived Report[] @relation("ReportedUser")
+
+  conversationsAsA Conversation[] @relation("ConversationParticipantA")
+  conversationsAsB Conversation[] @relation("ConversationParticipantB")
+  messagesSent     Message[]      @relation("MessageSender")
+
+  @@index([accountStatus])
+}
+
+model ProfessionalAccreditation {
+  id                String    @id @default(cuid())
+  userId            String
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accreditationType String?
+  referenceNumber   String?
+  documentUrl       String
+  issueDate         DateTime?
+  expirationDate    DateTime?
+  issuingAuthority  String?
+
+  @@index([userId])
+}
+
+// ---------- Social graph ----------
+
+model ConnectionRequest {
+  id          String                  @id @default(cuid())
+  requesterId String
+  requester   User                    @relation("ConnectionRequester", fields: [requesterId], references: [id], onDelete: Cascade)
+  recipientId String
+  recipient   User                    @relation("ConnectionRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+  status      ConnectionRequestStatus @default(PENDING)
+  createdAt   DateTime                @default(now())
+  updatedAt   DateTime                @updatedAt
+
+  @@index([requesterId])
+  @@index([recipientId])
+  @@index([status])
+}
+
+// Single source of truth for "who follows whom" — replaces both the old
+// Follow collection AND the redundant User.followers/following arrays.
+model Follow {
+  id          String   @id @default(cuid())
+  followerId  String
+  follower    User     @relation("Follower", fields: [followerId], references: [id], onDelete: Cascade)
+  followingId String
+  following   User     @relation("Following", fields: [followingId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+
+  @@unique([followerId, followingId])
+  @@index([followingId])
+}
+
+model Block {
+  id        String   @id @default(cuid())
+  blockerId String
+  blocker   User     @relation("Blocker", fields: [blockerId], references: [id], onDelete: Cascade)
+  blockedId String
+  blocked   User     @relation("Blocked", fields: [blockedId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([blockerId, blockedId])
+}
+
+// Conversation is symmetric (unlike Follow/Block, which are directional) —
+// participantAId/participantBId are always stored with the lexicographically
+// smaller user id first (canonicalized in MessagesService before every
+// read/write) so @@unique below actually prevents duplicate conversations
+// regardless of who initiates.
+model Conversation {
+  id             String    @id @default(cuid())
+  participantAId String
+  participantA   User      @relation("ConversationParticipantA", fields: [participantAId], references: [id], onDelete: Cascade)
+  participantBId String
+  participantB   User      @relation("ConversationParticipantB", fields: [participantBId], references: [id], onDelete: Cascade)
+  messages       Message[]
+  lastMessageAt  DateTime?
+  createdAt      DateTime  @default(now())
+
+  @@unique([participantAId, participantBId])
+  @@index([participantAId, lastMessageAt])
+  @@index([participantBId, lastMessageAt])
+}
+
+model Message {
+  id             String       @id @default(cuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderId       String
+  sender         User         @relation("MessageSender", fields: [senderId], references: [id], onDelete: Cascade)
+  content        String
+  read           Boolean      @default(false)
+  // Soft-delete sentinel, same convention as Comment.status — keeps the
+  // row (and thread position) instead of a hard delete; content is kept
+  // in the DB but must never be rendered once deleted is true.
+  deleted        Boolean      @default(false)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@index([conversationId, createdAt])
+}
+
+// ---------- Content ----------
+
+model Post {
+  id        String     @id @default(cuid())
+  content   String
+  authorId  String
+  author    User       @relation("PostAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  status    PostStatus @default(PUBLISHED)
+
+  // Was a dead index on a never-added field in Mongo — actually wired up
+  // here. Drop this column if group-posts turn out not to be wanted.
+  groupId String?
+  group   Group?  @relation(fields: [groupId], references: [id], onDelete: SetNull)
+
+  likesCount    Int @default(0)
+  commentsCount Int @default(0)
+  viewsCount    Int @default(0)
+  sharesCount   Int @default(0)
+
+  media        Media[]
+  comments     Comment[]
+  likes        Like[]
+  bookmarks    Bookmark[]
+  notifications Notification[]
+  reports       Report[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([createdAt])
+  @@index([authorId, createdAt])
+  @@index([groupId, createdAt])
+  @@index([status, createdAt])
+}
+
+model Comment {
+  id       String        @id @default(cuid())
+  content  String
+  authorId String
+  author   User          @relation("CommentAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  postId   String
+  post     Post          @relation(fields: [postId], references: [id], onDelete: Cascade)
+  parentId String?
+  parent   Comment?      @relation("CommentReplies", fields: [parentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  replies  Comment[]     @relation("CommentReplies")
+  status   CommentStatus @default(VISIBLE)
+
+  likesCount   Int @default(0)
+  repliesCount Int @default(0)
+
+  media         Media[]
+  likes         Like[]
+  bookmarks     Bookmark[]
+  notifications Notification[]
+  reports       Report[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([postId, createdAt])
+  @@index([parentId, createdAt])
+}
+
+// Shared attachment table for Post and Comment media (exclusive arc: a row
+// belongs to exactly one of postId/commentId — enforce with a CHECK
+// constraint added via raw SQL migration, Prisma DSL can't express it).
+model Media {
+  id        String    @id @default(cuid())
+  url       String
+  type      MediaType
+  postId    String?
+  post      Post?     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  commentId String?
+  comment   Comment?  @relation(fields: [commentId], references: [id], onDelete: Cascade)
+
+  @@index([postId])
+  @@index([commentId])
+}
+
+// Exclusive arc: exactly one of postId/commentId set per row.
+// TODO (post-migrate): add partial unique indexes via raw SQL —
+//   CREATE UNIQUE INDEX like_unique_post ON "Like" ("userId", "postId") WHERE "commentId" IS NULL;
+//   CREATE UNIQUE INDEX like_unique_comment ON "Like" ("userId", "commentId") WHERE "postId" IS NULL;
+// (a plain @@unique below won't reject duplicates because Postgres treats
+// NULL as distinct from NULL in unique constraints.)
+model Like {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  postId    String?
+  post      Post?    @relation(fields: [postId], references: [id], onDelete: Cascade)
+  commentId String?
+  comment   Comment? @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([postId])
+  @@index([commentId])
+}
+
+// Same exclusive-arc caveat as Like — partial unique indexes needed post-migrate.
+model Bookmark {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  postId    String?
+  post      Post?    @relation(fields: [postId], references: [id], onDelete: Cascade)
+  commentId String?
+  comment   Comment? @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([postId])
+  @@index([commentId])
+}
+
+// ---------- Groups ----------
+
+model Group {
+  id               String       @id @default(cuid())
+  name             String
+  slug             String       @unique
+  description      String?
+  creatorId        String
+  creator          User         @relation("GroupCreator", fields: [creatorId], references: [id], onDelete: Cascade)
+  privacy          GroupPrivacy @default(PUBLIC)
+  coverImageUrl    String?
+  profileImageUrl  String?
+
+  // H9 group moderation: gate posts behind admin/moderator approval and
+  // (declaratively, no enforcement wired yet) restrict to verified titles.
+  postsRequireApproval     Boolean  @default(false)
+  restrictToVerifiedTitles Boolean  @default(false)
+  rules                    String[] @default([])
+
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  memberships   GroupMembership[]
+  joinRequests  GroupJoinRequest[]
+  posts         Post[]
+  notifications Notification[]
+}
+
+// The User<->Group join table (role-aware) — already clean in Mongo,
+// carries over structurally unchanged.
+model GroupMembership {
+  id       String          @id @default(cuid())
+  groupId  String
+  group    Group           @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  userId   String
+  user     User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role     GroupMemberRole @default(MEMBER)
+  joinedAt DateTime        @default(now())
+
+  @@unique([groupId, userId])
+  @@index([groupId, role])
+}
+
+model GroupJoinRequest {
+  id        String                 @id @default(cuid())
+  groupId   String
+  group     Group                  @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status    GroupJoinRequestStatus @default(PENDING)
+  createdAt DateTime               @default(now())
+  updatedAt DateTime               @updatedAt
+
+  @@index([groupId])
+  @@index([userId])
+  @@index([status])
+}
+
+// ---------- Notifications ----------
+
+// Exclusive arc across 4 possible targets (post/comment/group/user) instead
+// of Mongo's loose entityId+onModel pair — gives real cascade-delete (a
+// notification about a deleted post disappears automatically) instead of
+// a dangling reference the frontend has to defend against.
+model Notification {
+  id           String           @id @default(cuid())
+  recipientId  String
+  recipient    User             @relation("NotificationRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+  senderId     String
+  sender       User             @relation("NotificationSender", fields: [senderId], references: [id], onDelete: Cascade)
+  type         NotificationType
+  read         Boolean          @default(false)
+  createdAt    DateTime         @default(now())
+
+  postId       String?
+  post         Post?    @relation(fields: [postId], references: [id], onDelete: Cascade)
+  commentId    String?
+  comment      Comment? @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  groupId      String?
+  group        Group?   @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  targetUserId String?
+  targetUser   User?    @relation("NotificationTargetUser", fields: [targetUserId], references: [id], onDelete: Cascade)
+
+  @@index([recipientId, read, createdAt])
+}
+
+// H10: per-user notification preferences. Missing row = defaults below
+// (see NotificationsService.getPreferences) — no backfill needed for
+// existing users. quietHours* suppress push delivery only, not the
+// in-app/DB notification itself; hours are plain 0-23 ints compared
+// against server local time (no per-user timezone field exists yet).
+model NotificationPreference {
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  notifyReplies                    Boolean @default(true)
+  notifyMentions                   Boolean @default(true)
+  notifyConnectionRequests         Boolean @default(true)
+  notifyReactions                  Boolean @default(false)
+  notifyGroupActivity              Boolean @default(true)
+  notifyEstablishmentAnnouncements Boolean @default(false)
+  notifyMessages                   Boolean @default(true)
+
+  quietHoursEnabled Boolean @default(false)
+  quietHoursStart   Int? // 0-23
+  quietHoursEnd     Int? // 0-23
+
+  weeklyEmailDigest Boolean @default(false)
+
+  updatedAt DateTime @updatedAt
+}
+
+// H11: content/user reporting. Exclusive arc (postId/commentId/
+// reportedUserId — exactly one set), same convention as Bookmark. Traced
+// internally (reporterId stored, for rate-limiting and future abuse
+// detection) but never exposed to group moderators via GraphQL — the
+// Report GraphQL type has no reporter field, see reports.model.ts.
+model Report {
+  id       String @id @default(cuid())
+  reporterId String
+  reporter   User   @relation("Reporter", fields: [reporterId], references: [id], onDelete: Cascade)
+
+  postId         String?
+  post           Post?   @relation(fields: [postId], references: [id], onDelete: Cascade)
+  commentId      String?
+  comment        Comment? @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  reportedUserId String?
+  reportedUser   User?   @relation("ReportedUser", fields: [reportedUserId], references: [id], onDelete: Cascade)
+
+  reason  ReportReason
+  details String?
+  status  ReportStatus @default(PENDING)
+
+  createdAt DateTime @default(now())
+
+  @@index([postId])
+  @@index([commentId])
+  @@index([reportedUserId])
+  @@index([status])
+}
+
+// ---------- Admin ----------
+
+model AdminUser {
+  id                    String      @id @default(cuid())
+  email                 String      @unique
+  passwordHash          String
+  name                  String
+  roles                 AdminRole[] @default([SUPPORT_AGENT])
+  isActive              Boolean     @default(true)
+  lastLoginAt           DateTime?
+  failedLoginAttempts   Int         @default(0)
+  isLockedOut           Boolean     @default(false)
+  permissions           String[]    @default([])
+  passwordResetToken    String?
+  passwordResetExpires  DateTime?
+  createdAt             DateTime    @default(now())
+  updatedAt             DateTime    @updatedAt
+}

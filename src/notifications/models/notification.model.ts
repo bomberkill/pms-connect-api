@@ -15,6 +15,9 @@ export class Notification {
   @Field(() => User)
   sender: User; // This will be resolved
 
+  @Field(() => User)
+  recipient: User;
+
   @Field(() => NotificationType)
   type: NotificationType;
 

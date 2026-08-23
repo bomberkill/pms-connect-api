@@ -1,226 +1,359 @@
-import {
-  Injectable,
-  NotFoundException,
-  ForbiddenException,
-  Inject,
-} from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
-import { Date, Model } from 'mongoose';
-import { Post, PostDocument, PostStatus } from './schemas/posts.schema'; // Corrected path if needed
-import { Like, LikeDocument } from './schemas/likes.schema';
+import { Injectable, NotFoundException, ForbiddenException, ConflictException } from '@nestjs/common';
+import { PrismaService } from '../prisma/prisma.service';
+import { PostStatus, MediaType, GroupPrivacy } from '../../generated/prisma/enums';
+import type { Prisma } from '../../generated/prisma/client';
 import { CreatePostInput } from './dto/create-post.input';
 import { PaginationArgs } from './dto/pagination.args';
 import { UpdatePostInput } from './dto/update-post.input';
-import { NotificationsService } from '../notifications/notifications.service';
-import { PUB_SUB } from 'src/pubsub/pubsub.module';
-import { PubSub } from 'graphql-subscriptions';
 import { CommentsService } from './comments.service';
+import { GroupsService } from '../groups/groups.service';
+import { NotificationsService } from '../notifications/notifications.service';
+import { NotificationType } from '../notifications/schemas/notification.schema';
+import { BlocksService } from '../blocks/blocks.service';
+
+// Media used to be an embedded Mongoose array (always present on every
+// fetched Post, no populate needed) — it's a separate Prisma table now, so
+// every query that returns a Post to a caller needs this to match the old
+// always-embedded behavior.
+const WITH_MEDIA = { media: true } as const;
 
 @Injectable()
 export class PostsService {
   constructor(
-    @InjectModel(Post.name) private postModel: Model<PostDocument>,
-    @InjectModel(Like.name) private likeModel: Model<LikeDocument>,
-    // Injection du service de notifications
-    private readonly notificationsService: NotificationsService,
+    private readonly prisma: PrismaService,
     private readonly commentsService: CommentsService,
-    @Inject(PUB_SUB) private readonly pubSub: PubSub,
+    private readonly groupsService: GroupsService,
+    private readonly notificationsService: NotificationsService,
+    private readonly blocksService: BlocksService,
   ) {}
 
-  // Note: For transactions to work, you must be connected to a MongoDB replica set.
+  async create(createPostInput: CreatePostInput, authorId: string) {
+    const { media, ...rest } = createPostInput;
 
-  async create(
-    createPostInput: CreatePostInput,
-    authorId: string,
-  ): Promise<PostDocument> {
-    const newPost = new this.postModel({
-      ...createPostInput,
-      author: authorId,
-    });
-    return (await newPost.save()).populate('author');
+    // A group requiring approval always wins over any client-supplied
+    // `status` — otherwise the approval gate would just be a suggestion.
+    let status = rest.status as PostStatus | undefined;
+    if (rest.groupId) {
+      const group = await this.prisma.group.findUnique({
+        where: { id: rest.groupId },
+        select: { postsRequireApproval: true },
+      });
+      if (group?.postsRequireApproval) {
+        status = PostStatus.PENDING;
+      }
+    }
+
+    const data: Prisma.PostUncheckedCreateInput = {
+      ...rest,
+      ...(status && { status }),
+      authorId,
+      // Validated against the ['IMAGE','VIDEO','DOCUMENT'] enum values by
+      // class-validator on the DTO; the field is just typed as `string`
+      // there, so it needs a cast to Prisma's literal MediaType union.
+      ...(media && {
+        media: {
+          create: media.map((m) => ({ ...m, type: m.type as MediaType })),
+        },
+      }),
+    };
+    return this.prisma.post.create({ data, include: WITH_MEDIA });
   }
 
-  async findManyByIds(ids: readonly string[]): Promise<PostDocument[]> {
-    return this.postModel.find({ _id: { $in: ids } }).exec();
-  }
-
-  async findOne(id: string): Promise<PostDocument> {
-    const post = await this.postModel.findById(id).populate('author').exec();
+  /**
+   * Approves or rejects a pending group post. Caller must already be
+   * confirmed as an admin/moderator of the post's group (see
+   * GroupsService.assertCanModerateGroupPosts).
+   */
+  async moderate(
+    postId: string,
+    actorId: string,
+    decision: 'APPROVED' | 'REJECTED',
+  ): Promise<boolean> {
+    const post = await this.prisma.post.findUnique({ where: { id: postId } });
     if (!post) {
-      throw new NotFoundException(`Post with ID "${id}" not found.`);
+      throw new NotFoundException(`Post with ID "${postId}" not found.`);
     }
-    return post;
-  }
-
-  async update(
-    id: string,
-    userId: string,
-    updatePostInput: UpdatePostInput,
-  ): Promise<PostDocument> {
-    const post = await this.postModel.findById(id);
-
-    if (!post) {
-      throw new NotFoundException(`Post with ID "${id}" not found.`);
+    if (!post.groupId) {
+      throw new ForbiddenException('This post does not belong to a group.');
     }
+    await this.groupsService.assertCanModerateGroupPosts(post.groupId, actorId);
 
-    if (post.author.toString() !== userId) {
-      throw new ForbiddenException('You can only update your own posts.');
-    }
-
-    // Mongoose ne met à jour que les champs fournis dans l'objet
-    Object.assign(post, updatePostInput);
-
-    const updatedPost = await post.save();
-
-    // On s'assure que l'auteur est toujours populé au retour
-    return updatedPost.populate('author');
-  }
-
-  async remove(id: string, userId: string): Promise<boolean> {
-    const post = await this.postModel.findById(id);
-
-    if (!post) {
-      throw new NotFoundException(`Post with ID "${id}" not found.`);
-    }
-
-    // Autoriser la suppression uniquement si l'utilisateur est l'auteur du post.
-    // (On pourrait ajouter une logique pour les administrateurs ici)
-    if (post.author.toString() !== userId) {
-      throw new ForbiddenException('You can only delete your own posts.');
-    }
-
-    // Soft-delete the post
-    await this.postModel.findByIdAndUpdate(id, {
-      $set: {
-        status: PostStatus.ARCHIVED,
-        content: '[This post has been deleted]',
-      },
-    });
-
-    // Find all top-level comments for this post
-    const topLevelComments = await this.commentsService.findCommentsByPost(id, {
-      skip: 0,
-      limit: Number.MAX_SAFE_INTEGER,
-    });
-
-    // Trigger cascading soft-delete for each top-level comment
-    for (const comment of topLevelComments) {
-      // We can call this without checking ownership again, as it's an internal, trusted action.
-      // The `removeComment` method will start the recursive deletion.
-      await this.commentsService.removeComment(
-        comment._id.toString(),
-        comment.author.toString(),
+    if (post.status !== PostStatus.PENDING) {
+      throw new ConflictException(
+        `This post is already ${post.status.toLowerCase()}.`,
       );
     }
+
+    await this.prisma.post.update({
+      where: { id: postId },
+      data: { status: decision === 'APPROVED' ? PostStatus.PUBLISHED : PostStatus.REJECTED },
+    });
+
+    this.notificationsService.create({
+      recipients: [post.authorId],
+      sender: actorId,
+      type: decision === 'APPROVED' ? NotificationType.POST_APPROVED : NotificationType.POST_REJECTED,
+      entityId: post.id,
+      onModel: 'Post',
+    });
 
     return true;
   }
 
   /**
+   * Lists posts awaiting moderation in a group. Caller must be an
+   * admin/moderator of the group.
+   */
+  async findPendingByGroup(
+    groupId: string,
+    actorId: string,
+    paginationArgs: PaginationArgs,
+  ) {
+    await this.groupsService.assertCanModerateGroupPosts(groupId, actorId);
+    const { skip, limit } = paginationArgs;
+    return this.prisma.post.findMany({
+      where: { groupId, status: PostStatus.PENDING },
+      orderBy: { createdAt: 'desc' },
+      skip,
+      take: limit,
+      include: WITH_MEDIA,
+    });
+  }
+
+  async findManyByIds(ids: readonly string[]) {
+    return this.prisma.post.findMany({
+      where: { id: { in: [...ids] } },
+      include: WITH_MEDIA,
+    });
+  }
+
+  async findOne(id: string, includeArchived = false) {
+    const post = await this.prisma.post.findUnique({
+      where: { id },
+      include: WITH_MEDIA,
+    });
+    if (!post || (!includeArchived && post.status === PostStatus.ARCHIVED)) {
+      throw new NotFoundException(`Post with ID "${id}" not found.`);
+    }
+    return post;
+  }
+
+  /**
+   * Lean lookup used by callers (e.g. CommentsResolver) that need to check
+   * group-content visibility for a post without fetching the full row.
+   */
+  async findGroupIdForPost(postId: string): Promise<string | null> {
+    const post = await this.prisma.post.findUnique({
+      where: { id: postId },
+      select: { groupId: true },
+    });
+    return post?.groupId ?? null;
+  }
+
+  /**
+   * Restricts a post listing to items whose parent group (if any) is
+   * visible to the viewer: posts with no group, posts in a PUBLIC group, or
+   * posts in a group the viewer is actually a member of. Callers fetching
+   * as an admin should bypass this filter entirely rather than pass a
+   * viewerId (admins can already see everything, same as the archived-post
+   * bypass below).
+   */
+  private groupVisibilityFilter(viewerId?: string): Prisma.PostWhereInput {
+    return {
+      OR: [
+        { groupId: null },
+        { group: { privacy: GroupPrivacy.PUBLIC } },
+        ...(viewerId
+          ? [{ group: { memberships: { some: { userId: viewerId } } } }]
+          : []),
+      ],
+    };
+  }
+
+  /**
+   * Excludes posts from authors the viewer has blocked, or who have
+   * blocked the viewer — a block hides content in both directions.
+   */
+  private async blockedAuthorsFilter(
+    viewerId?: string,
+  ): Promise<Prisma.PostWhereInput> {
+    if (!viewerId) {
+      return {};
+    }
+    const blockedIds = await this.blocksService.getMutualBlockIds(viewerId);
+    return blockedIds.length ? { authorId: { notIn: blockedIds } } : {};
+  }
+
+  async update(id: string, userId: string, updatePostInput: UpdatePostInput) {
+    const post = await this.prisma.post.findUnique({ where: { id } });
+    if (!post) {
+      throw new NotFoundException(`Post with ID "${id}" not found.`);
+    }
+    if (post.authorId !== userId) {
+      throw new ForbiddenException('You can only update your own posts.');
+    }
+
+    return this.prisma.post.update({
+      where: { id },
+      data: updatePostInput,
+      include: WITH_MEDIA,
+    });
+  }
+
+  async remove(id: string, userId: string): Promise<boolean> {
+    const post = await this.prisma.post.findUnique({ where: { id } });
+    if (!post) {
+      throw new NotFoundException(`Post with ID "${id}" not found.`);
+    }
+    if (post.authorId !== userId) {
+      throw new ForbiddenException('You can only delete your own posts.');
+    }
+    return this.softDeletePost(id);
+  }
+
+  /**
    * Finds posts from a list of author IDs to build a feed.
-   * @param authorIds - An array of user IDs.
-   * @param paginationArgs - Skip and limit for pagination.
-   * @returns A paginated list of posts.
    */
   async findPostsByAuthors(
     authorIds: string[],
     paginationArgs: PaginationArgs,
-  ): Promise<PostDocument[]> {
+    includeArchived = false,
+    viewerId?: string,
+    bypassGroupVisibility = false,
+  ) {
     const { skip, limit } = paginationArgs;
-    return this.postModel
-      .find({
-        author: { $in: authorIds }, // Find posts where the author is in the provided list
-      })
-      .sort({ createdAt: -1 }) // Show newest posts first
-      .skip(skip)
-      .limit(limit)
-      .populate('author');
+    const blockedFilter = await this.blockedAuthorsFilter(viewerId);
+    return this.prisma.post.findMany({
+      where: {
+        authorId: { in: authorIds },
+        ...(includeArchived ? {} : { status: PostStatus.PUBLISHED }),
+        ...(bypassGroupVisibility ? {} : this.groupVisibilityFilter(viewerId)),
+        ...blockedFilter,
+      },
+      orderBy: { createdAt: 'desc' },
+      skip,
+      take: limit,
+      include: WITH_MEDIA,
+    });
   }
 
   /**
    * Finds the most popular authors based on likes received in the last 60 days.
-   * This uses a MongoDB aggregation pipeline.
-   * @param limit - The number of popular authors to return.
-   * @returns A list of the most popular author IDs.
    */
   async findPopularAuthors(limit = 20): Promise<string[]> {
     const sixtyDaysAgo = new Date();
     sixtyDaysAgo.setDate(sixtyDaysAgo.getDate() - 60);
 
-    const popularAuthors = await this.postModel.aggregate([
-      // 1. Match posts from the last 60 days
-      { $match: { createdAt: { $gte: sixtyDaysAgo } } },
-      // 2. Group by author and sum their total likes
-      { $group: { _id: '$author', totalLikes: { $sum: '$likesCount' } } },
-      // 3. Sort authors by the most likes
-      { $sort: { totalLikes: -1 } },
-      // 4. Take the top N authors
-      { $limit: limit },
-      // 5. We only need the author ID
-      { $project: { _id: 1 } },
-    ]);
+    const grouped = await this.prisma.post.groupBy({
+      by: ['authorId'],
+      where: { createdAt: { gte: sixtyDaysAgo } },
+      _sum: { likesCount: true },
+      orderBy: { _sum: { likesCount: 'desc' } },
+      take: limit,
+    });
 
-    // The result is an array of objects like [{ _id: '...' }], so we map to get an array of strings.
-    return popularAuthors.map((author) => author._id.toString());
+    return grouped.map((g) => g.authorId);
   }
 
   /**
    * Finds all posts on the platform, for general discovery.
-   * @param paginationArgs - Skip and limit for pagination.
-   * @returns A paginated list of all posts.
    */
-  async findAllPosts(paginationArgs: PaginationArgs): Promise<PostDocument[]> {
+  async findAllPosts(
+    paginationArgs: PaginationArgs,
+    includeArchived = false,
+    viewerId?: string,
+  ) {
     const { skip, limit } = paginationArgs;
-    return this.postModel
-      .find() // No filter, gets all posts
-      .sort({ createdAt: -1 }) // Show newest posts first
-      .skip(skip)
-      .limit(limit)
-      .populate('author');
+    const blockedFilter = await this.blockedAuthorsFilter(viewerId);
+    return this.prisma.post.findMany({
+      where: includeArchived
+        ? { ...blockedFilter }
+        : {
+            status: PostStatus.PUBLISHED,
+            ...this.groupVisibilityFilter(viewerId),
+            ...blockedFilter,
+          },
+      orderBy: { createdAt: 'desc' },
+      skip,
+      take: limit,
+      include: WITH_MEDIA,
+    });
   }
 
   /**
-   * Counts new posts from a list of authors since a given post ID.
-   * @param authorIds - An array of user IDs.
-   * @param sincePostId - The ID of the last post seen by the user.
-   * @returns The number of new posts.
+   * Counts new posts from a list of authors since a given post was seen.
+   * Not currently called anywhere (commented out in the resolver) — kept
+   * for parity, but now anchors on the reference post's createdAt rather
+   * than a `_id > sincePostId` cursor: unlike Mongo ObjectIds, Prisma's
+   * cuid ids aren't guaranteed to sort chronologically.
    */
   async countNewPostsByAuthors(
     authorIds: string[],
     sincePostId: string,
   ): Promise<number> {
-    return this.postModel.countDocuments({
-      author: { $in: authorIds },
-      _id: { $gt: sincePostId }, // Efficiently checks for newer documents
-      status: PostStatus.PUBLISHED,
+    const sincePost = await this.prisma.post.findUnique({
+      where: { id: sincePostId },
+      select: { createdAt: true },
+    });
+    if (!sincePost) return 0;
+    return this.prisma.post.count({
+      where: {
+        authorId: { in: authorIds },
+        createdAt: { gt: sincePost.createdAt },
+        status: PostStatus.PUBLISHED,
+      },
     });
   }
 
   /**
-   * Counts all new posts on the platform since a given post ID.
+   * Counts all new posts on the platform since a given date.
    */
   async countNewPosts(since: Date): Promise<number> {
-    return this.postModel.countDocuments({
-      createdAt: { $gt: since },
-      status: PostStatus.PUBLISHED,
+    return this.prisma.post.count({
+      where: { createdAt: { gt: since }, status: PostStatus.PUBLISHED },
     });
   }
+
   /**
    * Finds posts belonging to a specific group.
-   * @param groupId - The ID of the group.
-   * @param paginationArgs - Skip and limit for pagination.
-   * @returns A paginated list of posts in the group.
    */
-  async findPostsByGroup(
-    groupId: string,
-    paginationArgs: PaginationArgs,
-  ): Promise<PostDocument[]> {
+  async findPostsByGroup(groupId: string, paginationArgs: PaginationArgs) {
     const { skip, limit } = paginationArgs;
-    return this.postModel
-      .find({ group: groupId })
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit)
-      .populate('author');
+    return this.prisma.post.findMany({
+      where: { groupId, status: PostStatus.PUBLISHED },
+      orderBy: { createdAt: 'desc' },
+      skip,
+      take: limit,
+      include: WITH_MEDIA,
+    });
+  }
+
+  async removeAsAdmin(id: string): Promise<boolean> {
+    const post = await this.prisma.post.findUnique({ where: { id } });
+    if (!post) {
+      throw new NotFoundException(`Post with ID "${id}" not found.`);
+    }
+    return this.softDeletePost(id);
+  }
+
+  private async softDeletePost(id: string): Promise<boolean> {
+    await this.prisma.post.update({
+      where: { id },
+      data: {
+        status: PostStatus.ARCHIVED,
+        content: '[This post has been deleted]',
+      },
+    });
+
+    const topLevelComments = await this.commentsService.findCommentsByPost(
+      id,
+      { skip: 0, limit: Number.MAX_SAFE_INTEGER },
+    );
+
+    for (const comment of topLevelComments) {
+      await this.commentsService.removeCommentAsAdmin(comment.id);
+    }
+
+    return true;
   }
 }

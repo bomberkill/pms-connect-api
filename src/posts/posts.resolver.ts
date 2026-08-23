@@ -14,19 +14,29 @@ import { Post } from './models/posts.model';
 import { CreatePostInput } from './dto/create-post.input';
 import { UpdatePostInput } from './dto/update-post.input';
 import { CombinedAuthGuard } from '../auth/guards/combined-auth.guard';
+import { AdminAuthGuard } from '../admin-auth/guards/admin-auth.guard';
 import { PaginationArgs } from './dto/pagination.args';
-import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import {
+  CurrentUser,
+  CurrentUserType,
+  isAdminUser,
+} from '../auth/decorators/current-user.decorator';
+import { GroupsService } from '../groups/groups.service';
 import { UserDocument } from '../users/schemas/users.schema';
 import { PostDocument } from './schemas/posts.schema';
 import { Dataloader } from 'src/dataloader/dataloader.decorator';
 import { UserLoader } from 'src/users/loaders/users.loader';
 import { LikeLoader } from '../posts/loaders/likes.loader';
 import { User } from 'src/users/models/users.model';
-import { Date } from 'mongoose';
+import { FollowsService } from '../follows/follows.service';
 
 @Resolver(() => Post)
 export class PostsResolver {
-  constructor(private readonly postsService: PostsService) { }
+  constructor(
+    private readonly postsService: PostsService,
+    private readonly groupsService: GroupsService,
+    private readonly followsService: FollowsService,
+  ) { }
 
   @UseGuards(CombinedAuthGuard)
   @Mutation(() => Post, { name: 'createPost' })
@@ -34,16 +44,61 @@ export class PostsResolver {
     @Args('createPostInput') createPostInput: CreatePostInput,
     @CurrentUser() user: UserDocument,
   ): Promise<PostDocument> {
-    return this.postsService.create(createPostInput, user._id.toString());
+    if (createPostInput.groupId) {
+      await this.groupsService.assertCanPostInGroup(
+        createPostInput.groupId,
+        user.id,
+      );
+    }
+    return this.postsService.create(createPostInput, user.id);
     // return postDocument as unknown as Post;
+  }
+
+  @UseGuards(CombinedAuthGuard)
+  @Mutation(() => Boolean, {
+    name: 'approveGroupPost',
+    description: 'Approves a pending group post as an admin or moderator.',
+  })
+  async approveGroupPost(
+    @Args('postId', { type: () => ID }) postId: string,
+    @CurrentUser() user: UserDocument,
+  ): Promise<boolean> {
+    return this.postsService.moderate(postId, user.id, 'APPROVED');
+  }
+
+  @UseGuards(CombinedAuthGuard)
+  @Mutation(() => Boolean, {
+    name: 'rejectGroupPost',
+    description: 'Rejects a pending group post as an admin or moderator.',
+  })
+  async rejectGroupPost(
+    @Args('postId', { type: () => ID }) postId: string,
+    @CurrentUser() user: UserDocument,
+  ): Promise<boolean> {
+    return this.postsService.moderate(postId, user.id, 'REJECTED');
+  }
+
+  @UseGuards(CombinedAuthGuard)
+  @Query(() => [Post], { name: 'getPendingGroupPosts' })
+  async getPendingGroupPosts(
+    @Args('groupId', { type: () => ID }) groupId: string,
+    @Args() paginationArgs: PaginationArgs,
+    @CurrentUser() user: UserDocument,
+  ): Promise<PostDocument[]> {
+    return this.postsService.findPendingByGroup(groupId, user.id, paginationArgs);
   }
 
   @UseGuards(CombinedAuthGuard) // Protéger la lecture pour s'assurer que l'utilisateur est connecté
   @Query(() => Post, { name: 'getPostById', nullable: true })
   async getPostById(
     @Args('id', { type: () => ID }) id: string,
+    @CurrentUser() currentUser: CurrentUserType,
   ): Promise<PostDocument> {
-    return this.postsService.findOne(id);
+    const post = await this.postsService.findOne(id);
+    if (post.groupId) {
+      await this.groupsService.assertCanViewGroupContent(post.groupId, currentUser);
+    }
+    return post;
     // return postDocument as unknown as Post;
   }
 
@@ -53,7 +108,7 @@ export class PostsResolver {
     @Args('id', { type: () => ID }) id: string,
     @CurrentUser() user: UserDocument,
   ): Promise<boolean> {
-    return this.postsService.remove(id, user._id.toString());
+    return this.postsService.remove(id, user.id);
   }
 
   @UseGuards(CombinedAuthGuard)
@@ -62,13 +117,15 @@ export class PostsResolver {
     @CurrentUser() user: UserDocument,
     @Args() paginationArgs: PaginationArgs,
   ): Promise<PostDocument[]> {
-    let authorIds: string[];
+    // User.following no longer exists as an array (Follow is its own table
+    // now — see the SQL migration notes) — fetch the ids explicitly.
+    const followingIds = await this.followsService.getFollowingIds(user.id);
 
     // Si l'utilisateur ne suit personne, on lui montre un fil de découverte.
-    if (user.following.length === 0) {
+    if (followingIds.length === 0) {
       // APPROCHE ACTUELLE (pour une nouvelle application) :
       // On affiche tous les posts récents de la plateforme pour favoriser la découverte.
-      return this.postsService.findAllPosts(paginationArgs);
+      return this.postsService.findAllPosts(paginationArgs, false, user.id);
       // return allPosts as unknown as Post[];
 
       /*
@@ -81,11 +138,13 @@ export class PostsResolver {
       */
     } else {
       // Sinon, on construit le fil d'actualité standard avec les posts des personnes suivies et ses propres posts.
-      authorIds = [
-        ...user.following.map((id) => id.toString()),
-        user._id.toString(),
-      ];
-      return this.postsService.findPostsByAuthors(authorIds, paginationArgs);
+      const authorIds = [...followingIds, user.id];
+      return this.postsService.findPostsByAuthors(
+        authorIds,
+        paginationArgs,
+        false,
+        user.id,
+      );
       // return posts as unknown as Post[];
     }
   }
@@ -103,7 +162,7 @@ export class PostsResolver {
     return this.postsService.countNewPosts(since);
     // if (user.following.length === 0) {
     // } else {
-    //   const authorIds = [...user.following.map(id => id.toString()), user._id.toString()];
+    //   const authorIds = [...user.following.map(id => id.toString()), user.id];
     //   return this.postsService.countNewPostsByAuthors(authorIds, since);
     // }
   }
@@ -113,8 +172,17 @@ export class PostsResolver {
   async getPostsByAuthor(
     @Args('authorId', { type: () => ID }) authorId: string,
     @Args() paginationArgs: PaginationArgs,
+    @CurrentUser() currentUser: CurrentUserType,
   ): Promise<PostDocument[]> {
-    return this.postsService.findPostsByAuthors([authorId], paginationArgs);
+    const isAdmin = isAdminUser(currentUser);
+    const viewerId = !isAdmin && 'id' in currentUser ? currentUser.id : undefined;
+    return this.postsService.findPostsByAuthors(
+      [authorId],
+      paginationArgs,
+      false,
+      viewerId,
+      isAdmin,
+    );
   }
 
   @UseGuards(CombinedAuthGuard)
@@ -122,8 +190,34 @@ export class PostsResolver {
   async getPostsByGroup(
     @Args('groupId', { type: () => ID }) groupId: string,
     @Args() paginationArgs: PaginationArgs,
+    @CurrentUser() currentUser: CurrentUserType,
   ): Promise<PostDocument[]> {
+    await this.groupsService.assertCanViewGroupContent(groupId, currentUser);
     return this.postsService.findPostsByGroup(groupId, paginationArgs);
+  }
+
+  @UseGuards(AdminAuthGuard)
+  @Query(() => [Post], { name: 'adminGetPosts' })
+  async adminGetPosts(
+    @Args() paginationArgs: PaginationArgs,
+  ): Promise<PostDocument[]> {
+    return this.postsService.findAllPosts(paginationArgs, true);
+  }
+
+  @UseGuards(AdminAuthGuard)
+  @Query(() => Post, { name: 'adminGetPostById', nullable: true })
+  async adminGetPostById(
+    @Args('id', { type: () => ID }) id: string,
+  ): Promise<PostDocument> {
+    return this.postsService.findOne(id, true);
+  }
+
+  @UseGuards(AdminAuthGuard)
+  @Mutation(() => Boolean, { name: 'adminRemovePost' })
+  async adminRemovePost(
+    @Args('id', { type: () => ID }) id: string,
+  ): Promise<boolean> {
+    return this.postsService.removeAsAdmin(id);
   }
 
   // TODO: Ajouter les resolvers pour les champs `author`
@@ -136,7 +230,7 @@ export class PostsResolver {
   ): Promise<PostDocument> {
     return this.postsService.update(
       postId,
-      user._id.toString(),
+      user.id,
       updatePostInput,
     );
     // return updatedPost as unknown as Post;
@@ -149,13 +243,7 @@ export class PostsResolver {
     @Parent() post: PostDocument,
     @Dataloader(UserLoader) userLoader: UserLoader,
   ): Promise<UserDocument> {
-    // post.author peut être un ID ou un objet User populé.
-    // On s'assure de passer un ID au loader.
-    const authorId =
-      typeof post.author === 'string'
-        ? post.author
-        : (post.author as any)._id.toString();
-    return userLoader.load(authorId);
+    return userLoader.load(post.authorId);
   }
 
   @ResolveField('isLiked', () => Boolean, { nullable: true })
@@ -169,9 +257,9 @@ export class PostsResolver {
     }
     // Le DataLoader va regrouper tous les post.id et vérifier en une seule fois.
     return likeLoader.load({
-      likeableId: post._id.toString(),
+      likeableId: post.id,
       likeableType: 'Post',
-      userId: user._id.toString(),
+      userId: user.id,
     });
   }
 
@@ -185,8 +273,8 @@ export class PostsResolver {
       return null;
     }
     return bookmarkLoader.load({
-      userId: user._id.toString(),
-      itemId: post._id.toString(),
+      userId: user.id,
+      itemId: post.id,
     });
   }
 }

@@ -11,7 +11,7 @@ export class CommentLoader extends DataLoader<string, CommentDocument> {
         keys as string[],
       );
       const commentsMap = new Map(
-        comments.map((comment) => [comment._id.toString(), comment]),
+        comments.map((comment) => [comment.id, comment]),
       );
       return keys.map((key) => commentsMap.get(key) || null);
     });

@@ -1,4 +1,4 @@
-import { InputType, Field } from '@nestjs/graphql';
+import { InputType, Field, ID } from '@nestjs/graphql';
 import {
   IsString,
   IsNotEmpty,
@@ -44,4 +44,12 @@ export class CreatePostInput {
   @IsOptional()
   @IsEnum(PostStatus)
   status?: PostStatus;
+
+  @Field(() => ID, {
+    nullable: true,
+    description: 'If set, publishes the post inside this group. The caller must be a member of the group.',
+  })
+  @IsOptional()
+  @IsString()
+  groupId?: string;
 }

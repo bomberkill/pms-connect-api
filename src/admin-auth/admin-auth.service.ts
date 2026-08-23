@@ -19,18 +19,10 @@ export class AdminAuthService {
 
   async validateAdmin(email: string, pass: string): Promise<any> {
     const admin = await this.adminsService.findByEmail(email);
-    //   if (admin && (await admin.comparePassword(pass)) && admin.isActive && !admin.isLockedOut) {
-    //     // Exclude passwordHash from the object returned
-    //     const { passwordHash, ...result } = admin.toObject();
-    //     return result;
-    //   }
-    //   // Optionally, increment failedLoginAttempts and handle lockout logic here or in AdminsService
-    //   return null;
     if (admin) {
-      const isPasswordMatch = await admin.comparePassword(pass);
+      const isPasswordMatch = await this.adminsService.comparePassword(admin, pass);
 
       if (isPasswordMatch && admin.isActive && !admin.isLockedOut) {
-        // const { passwordHash, ...result } = admin.toObject();
         return admin;
       }
     }
@@ -40,13 +32,11 @@ export class AdminAuthService {
   async login(admin: AdminUserDocument) {
     const payload = {
       email: admin.email,
-      sub: admin._id.toString(),
+      sub: admin.id,
       roles: admin.roles,
     };
     // Update lastLoginAt
-    admin.lastLoginAt = new Date();
-    await admin.save();
-    //   admin.save();
+    await this.adminsService.recordLogin(admin.id);
     return {
       accessToken: this.jwtService.sign(payload),
     };
@@ -114,10 +104,7 @@ export class AdminAuthService {
         email: string;
         roles: string[];
       }>(token, {
-        secret: this.configService.get<string>(
-          'ADMIN_JWT_SECRET',
-          'DEFAULT_ADMIN_SECRET_KEY_32_CHARS',
-        ),
+        secret: this.configService.getOrThrow<string>('ADMIN_JWT_SECRET'),
       });
 
       // After verifying the token structure and signature,

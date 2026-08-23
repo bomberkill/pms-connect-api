@@ -130,6 +130,20 @@ enum ConnectionRequestStatusGQL {
   TERMINATED
 }
 
+type Conversation {
+  createdAt: DateTime!
+  id: ID!
+  lastMessage: Message
+  lastMessageAt: DateTime
+  otherParticipant: User!
+  unreadCount: Int!
+}
+
+type ConversationPresenceUpdate {
+  online: Boolean!
+  typing: Boolean!
+}
+
 input CreateAdminUserInput {
   email: String!
   isActive: Boolean = true
@@ -149,15 +163,35 @@ input CreateCommentInput {
 input CreateGroupInput {
   description: String
   name: String!
+  postsRequireApproval: Boolean = false
   privacy: GroupPrivacy = PUBLIC
+  restrictToVerifiedTitles: Boolean = false
+  rules: [String]
 }
 
 input CreatePostInput {
   content: String!
+
+  """
+  If set, publishes the post inside this group. The caller must be a member of the group.
+  """
+  groupId: ID
   media: [MediaItemInput]
 
   """Defaults to PUBLISHED if not provided."""
   status: PostStatus
+}
+
+input CreateReportInput {
+  commentId: ID
+
+  """Free-text detail, mainly for reason: OTHER."""
+  details: String
+
+  """Exactly one of postId/commentId/reportedUserId must be set."""
+  postId: ID
+  reason: ReportReason!
+  reportedUserId: ID
 }
 
 input CreateUserInput {
@@ -218,6 +252,15 @@ type FollowsUpdate {
   following: FollowingInfo!
 }
 
+input GetUploadUrlInput {
+  """MIME type of the file, e.g. "image/png"."""
+  contentType: String!
+
+  """Original file name, used to derive an extension."""
+  fileName: String!
+  purpose: UploadPurpose!
+}
+
 type Group {
   _id: ID!
   coverImageUrl: String
@@ -226,8 +269,11 @@ type Group {
   description: String
   members: [GroupMember!]!
   name: String!
+  postsRequireApproval: Boolean!
   privacy: GroupPrivacy!
   profileImageUrl: String
+  restrictToVerifiedTitles: Boolean!
+  rules: [String!]!
   slug: String!
   updatedAt: DateTime!
 }
@@ -262,6 +308,13 @@ enum GroupMemberRole {
   MODERATOR
 }
 
+type GroupMembership {
+  _id: ID!
+  joinedAt: DateTime!
+  role: GroupMemberRole!
+  user: User!
+}
+
 """The privacy level of a group (PUBLIC, PRIVATE, SECRET)"""
 enum GroupPrivacy {
   PRIVATE
@@ -272,20 +325,16 @@ enum GroupPrivacy {
 """Represents an individual healthcare professional."""
 type IndividualUserObject implements User {
   accountStatus: AccountStatus!
+  authUserId: ID
   bio: String
-
-  """List of blocked user IDs"""
-  blockedUsers: [ID!]!
+  blockedUsers: [ID!]
 
   """List of connected user IDs"""
   connections: [ID!]!
   coverPicUrl: String
   createdAt: DateTime!
-  email: String!
-  fcmTokens: [String!]!
-
-  """User's unique identifier from Firebase Authentication"""
-  firebaseUid: ID!
+  email: String
+  fcmTokens: [String!]
   firstName: String!
 
   """List of follower user IDs"""
@@ -302,7 +351,7 @@ type IndividualUserObject implements User {
 
   """User location details"""
   location: LocationObject
-  phoneNumber: String!
+  phoneNumber: String
 
   """Professional accreditation documents or details."""
   professionalAccreditation: [ProfessionalAccreditationObject!]
@@ -327,26 +376,22 @@ type IndividualUserObject implements User {
 """Represents a legal entity in the healthcare sector."""
 type LegalEntityUserObject implements User {
   accountStatus: AccountStatus!
+  authUserId: ID
   bio: String
-
-  """List of blocked user IDs"""
-  blockedUsers: [ID!]!
+  blockedUsers: [ID!]
 
   """List of connected user IDs"""
   connections: [ID!]!
   coverPicUrl: String
   createdAt: DateTime!
-  email: String!
+  email: String
 
   """Official name of the legal entity"""
   entityName: String!
 
   """Type of legal entity (e.g., Hospital, Clinic, Association)"""
   entityType: EntityType!
-  fcmTokens: [String!]!
-
-  """User's unique identifier from Firebase Authentication"""
-  firebaseUid: ID!
+  fcmTokens: [String!]
 
   """List of follower user IDs"""
   followers: [ID!]!
@@ -361,7 +406,7 @@ type LegalEntityUserObject implements User {
 
   """User location details"""
   location: LocationObject
-  phoneNumber: String!
+  phoneNumber: String
 
   """Professional accreditation documents or details."""
   professionalAccreditation: [ProfessionalAccreditationObject!]
@@ -412,39 +457,112 @@ input MediaItemInput {
   url: String!
 }
 
+type Message {
+  content: String!
+  conversationId: ID!
+  createdAt: DateTime!
+  deleted: Boolean!
+  id: ID!
+  read: Boolean!
+  sender: User!
+  updatedAt: DateTime!
+}
+
 type Mutation {
   acceptConnectionRequest(requestId: ID!): Boolean!
-  acceptGroupJoinRequest(requestId: ID!): Boolean!
+
+  """Accepts a group invitation for the current user."""
+  acceptGroupInvitation(input: RespondToGroupJoinRequestInput!): Boolean!
   addBookmark(itemId: ID!, itemType: BookmarkableType!): Boolean!
   addComment(createCommentInput: CreateCommentInput!): Comment!
+
+  """
+  Adds a member directly when allowed, or creates an invitation for private groups.
+  """
+  addOrInviteGroupMember(groupId: ID!, userId: ID!): GroupJoinRequest
+  adminApproveGroupJoinRequest(input: RespondToGroupJoinRequestInput!): Boolean!
+  adminDeleteGroup(groupId: ID!): Boolean!
   adminLogin(adminLoginInput: AdminLoginInput!): AdminLoginResponse!
+  adminRejectGroupJoinRequest(input: RespondToGroupJoinRequestInput!): Boolean!
+  adminRemoveComment(commentId: ID!): Boolean!
+  adminRemoveGroupMember(groupId: ID!, userId: ID!): Group!
+  adminRemovePost(id: ID!): Boolean!
+  adminRemoveUser(id: ID!): Boolean!
+  adminUpdateGroup(groupId: ID!, updateGroupInput: UpdateGroupInput!): Group!
+  adminUpdateGroupMemberRole(groupId: ID!, updateGroupMemberRoleInput: UpdateGroupMemberRoleInput!): GroupMembership!
+
+  """Approves a pending group join request."""
+  approveGroupJoinRequest(input: RespondToGroupJoinRequestInput!): Boolean!
+
+  """Approves a pending group post as an admin or moderator."""
+  approveGroupPost(postId: ID!): Boolean!
+  blockUser(userId: ID!): Boolean!
+
+  """Cancels the current user pending join request."""
+  cancelGroupJoinRequest(input: RespondToGroupJoinRequestInput!): Boolean!
+  clearActiveConversation: Boolean!
   createAdminUser(createAdminUserInput: CreateAdminUserInput!): AdminUser!
   createGroup(createGroupInput: CreateGroupInput!): Group!
   createPost(createPostInput: CreatePostInput!): Post!
+  createReport(input: CreateReportInput!): Boolean!
   createUser(createUserInput: CreateUserInput!): User!
-  declineOrCancelConnectionRequest(requestId: ID!): Boolean!
-  declineOrCancelGroupJoinRequest(requestId: ID!): Boolean!
-  follow(userId: ID!): Boolean!
 
-  """Allows an admin/moderator to invite or directly add a user to a group."""
-  inviteOrAddUserToGroup(groupId: ID!, userIdToInvite: ID!): GroupJoinRequest
-  leaveOrRemoveMemberFromGroup(groupId: ID!, userIdToRemove: ID): Group!
+  """Declines a group invitation for the current user."""
+  declineGroupInvitation(input: RespondToGroupJoinRequestInput!): Boolean!
+  declineOrCancelConnectionRequest(requestId: ID!): Boolean!
+
+  """Allows the group creator to delete the group."""
+  deleteGroup(groupId: ID!): Boolean!
+  deleteMessage(messageId: ID!): Boolean!
+
+  """Deletes a file the current user previously uploaded to R2."""
+  deleteUploadedFile(key: String!): Boolean!
+  editMessage(content: String!, messageId: ID!): Message!
+  follow(userId: ID!): Boolean!
+  getOrCreateConversationWithUser(userId: ID!): Conversation!
+
+  """Returns a presigned URL to upload a file directly to Cloudflare R2."""
+  getUploadUrl(input: GetUploadUrlInput!): UploadUrlResponse!
+
+  """Allows the current user to leave a group."""
+  leaveGroup(groupId: ID!): Group!
   likeComment(commentId: ID!): Boolean!
   likePost(postId: ID!): Boolean!
+  markConversationRead(conversationId: ID!): Boolean!
   markNotificationsAsRead(notificationIds: [ID!]!): Boolean!
   registerFcmToken(token: String!): Boolean!
+
+  """Rejects a pending join request as a group admin or moderator."""
+  rejectGroupJoinRequest(input: RespondToGroupJoinRequestInput!): Boolean!
+
+  """Rejects a pending group post as an admin or moderator."""
+  rejectGroupPost(postId: ID!): Boolean!
+  removeAdminUser(id: ID!): Boolean!
   removeBookmark(itemId: ID!): Boolean!
   removeComment(commentId: ID!): Boolean!
   removeConnection(userIdB: ID!): Boolean!
+
+  """Allows an authorized member to remove another member."""
+  removeGroupMember(groupId: ID!, userId: ID!): Group!
   removePost(id: ID!): Boolean!
+  removeUser: Boolean!
 
   """Initiates the password reset process for an admin."""
   requestAdminPasswordReset(requestAdminPasswordResetInput: RequestAdminPasswordResetInput!): Boolean!
 
+  """
+  Requests to join a group or joins immediately when the group is public.
+  """
+  requestToJoinGroup(groupId: ID!): Boolean!
+
   """Resets the admin password using a token."""
   resetAdminPassword(resetAdminPasswordInput: ResetAdminPasswordInput!): AdminUser!
+  resolveReport(reportId: ID!, status: ReportStatus!): Boolean!
   sendConnectionRequest(recipientId: ID!): Boolean!
-  sendGroupJoinRequest(groupId: ID!): Boolean!
+  sendMessage(content: String!, recipientId: ID!): Message!
+  sendTypingIndicator(conversationId: ID!): Boolean!
+  setActiveConversation(conversationId: ID!): Boolean!
+  unblockUser(userId: ID!): Boolean!
   unfollow(userId: ID!): Boolean!
   unlikeComment(commentId: ID!): Boolean!
   unlikePost(postId: ID!): Boolean!
@@ -453,9 +571,13 @@ type Mutation {
   updateAdminUser(id: ID!, updateAdminUserInput: UpdateAdminUserInput!): AdminUser!
   updateGroup(groupId: ID!, updateGroupInput: UpdateGroupInput!): Group!
 
+  """Allows a group admin to update a member role."""
+  updateGroupMemberRole(groupId: ID!, updateGroupMemberRoleInput: UpdateGroupMemberRoleInput!): GroupMembership!
+
   """Updates the authenticated user's email address."""
   updateMyEmail(newEmail: String!): User!
   updateMyProfile(updateUserInput: UpdateUserInput!): User!
+  updateNotificationPreferences(input: UpdateNotificationPreferencesInput!): NotificationPreference!
   updatePost(postId: ID!, updatePostInput: UpdatePostInput!): Post!
   updateUserByAdmin(id: ID!, updateUserInput: UpdateUserInput!): User!
 
@@ -469,8 +591,23 @@ type Notification {
   id: ID!
   message: String!
   read: Boolean!
+  recipient: User!
   sender: User!
   type: NotificationType!
+}
+
+type NotificationPreference {
+  notifyConnectionRequests: Boolean!
+  notifyEstablishmentAnnouncements: Boolean!
+  notifyGroupActivity: Boolean!
+  notifyMentions: Boolean!
+  notifyMessages: Boolean!
+  notifyReactions: Boolean!
+  notifyReplies: Boolean!
+  quietHoursEnabled: Boolean!
+  quietHoursEnd: Int
+  quietHoursStart: Int
+  weeklyEmailDigest: Boolean!
 }
 
 enum NotificationType {
@@ -480,9 +617,13 @@ enum NotificationType {
   GROUP_INVITATION
   GROUP_JOIN_REQUEST
   GROUP_JOIN_REQUEST_ACCEPTED
+  MENTION
+  MESSAGE
   NEW_FOLLOWER
+  POST_APPROVED
   POST_COMMENT
   POST_LIKE
+  POST_REJECTED
 }
 
 type Post {
@@ -512,7 +653,9 @@ type Post {
 """The status of the post (e.g., published or archived)"""
 enum PostStatus {
   ARCHIVED
+  PENDING
   PUBLISHED
+  REJECTED
 }
 
 input ProfessionalAccreditationInput {
@@ -546,13 +689,50 @@ type ProfessionalAccreditationObject {
 }
 
 type Query {
-  """Gets the currently authenticated admin user."""
-  adminMe: AdminUser!
-  adminUser(id: ID!): AdminUser
-  allAdminUsers: [AdminUser!]!
-  checkUserExistsByEmail(email: String!): CheckUserExistsResponse!
-  checkUserExistsByPhoneNumber(phoneNumber: String!): CheckUserExistsResponse!
-  getAllGroupJoinRequests(
+  adminGetCommentsByPost(
+    """Number of items to return"""
+    limit: Int! = 10
+    postId: ID!
+
+    """Number of items to skip"""
+    skip: Int! = 0
+  ): [Comment!]!
+  adminGetConnectionRequests(
+    """Number of items to return"""
+    limit: Int! = 10
+    recipientId: ID
+    requesterId: ID
+
+    """Number of items to skip"""
+    skip: Int! = 0
+    status: ConnectionRequestStatusGQL
+  ): [ConnectionRequest!]!
+  adminGetConnections(
+    """Number of items to return"""
+    limit: Int! = 10
+
+    """Number of items to skip"""
+    skip: Int! = 0
+    userId: ID!
+  ): [User!]!
+  adminGetFollowers(
+    """Number of items to return"""
+    limit: Int! = 10
+
+    """Number of items to skip"""
+    skip: Int! = 0
+    userId: ID!
+  ): [User!]!
+  adminGetFollowing(
+    """Number of items to return"""
+    limit: Int! = 10
+
+    """Number of items to skip"""
+    skip: Int! = 0
+    userId: ID!
+  ): [User!]!
+  adminGetGroupById(id: ID!): Group
+  adminGetGroupJoinRequests(
     """Filter by a specific group ID"""
     groupId: ID
 
@@ -565,6 +745,55 @@ type Query {
     """Filter by status"""
     status: GroupJoinRequestStatusGQL
   ): [GroupJoinRequest!]!
+  adminGetGroupMembers(
+    groupId: ID!
+
+    """Number of items to return"""
+    limit: Int! = 10
+
+    """Number of items to skip"""
+    skip: Int! = 0
+  ): [GroupMembership!]!
+  adminGetGroups(
+    """Number of items to return"""
+    limit: Int! = 10
+
+    """Filter by privacy level"""
+    privacy: GroupPrivacy
+
+    """Search by group name"""
+    search: String
+
+    """Number of items to skip"""
+    skip: Int! = 0
+  ): [Group!]!
+  adminGetNotifications(
+    """Number of items to return"""
+    limit: Int! = 10
+    read: Boolean
+    recipientId: ID
+    senderId: ID
+
+    """Number of items to skip"""
+    skip: Int! = 0
+    type: NotificationType
+  ): [Notification!]!
+  adminGetPostById(id: ID!): Post
+  adminGetPosts(
+    """Number of items to return"""
+    limit: Int! = 10
+
+    """Number of items to skip"""
+    skip: Int! = 0
+  ): [Post!]!
+
+  """Gets the currently authenticated admin user."""
+  adminMe: AdminUser!
+  adminUnreadNotificationsCount(recipientId: ID): Float!
+  adminUser(id: ID!): AdminUser
+  allAdminUsers: [AdminUser!]!
+  checkUserExistsByEmail(email: String!): CheckUserExistsResponse!
+  checkUserExistsByPhoneNumber(phoneNumber: String!): CheckUserExistsResponse!
   getAllUsers(
     """Number of items to return"""
     limit: Int = 10
@@ -592,7 +821,14 @@ type Query {
     """Number of items to skip"""
     skip: Int! = 0
   ): [Comment!]!
-  getConnections(userId: ID!): [User!]!
+  getConnections(
+    """Number of items to return"""
+    limit: Int! = 10
+
+    """Number of items to skip"""
+    skip: Int! = 0
+  ): [User!]!
+  getConversationById(conversationId: ID!): Conversation!
   getFeed(
     """Number of items to return"""
     limit: Int! = 10
@@ -600,13 +836,36 @@ type Query {
     """Number of items to skip"""
     skip: Int! = 0
   ): [Post!]!
-  getFollowers(userId: ID!): [User!]!
+  getFollowers(
+    """Number of items to return"""
+    limit: Int! = 10
+
+    """Number of items to skip"""
+    skip: Int! = 0
+    userId: ID!
+  ): [User!]!
   getFollowersCount(userId: ID!): Int!
-  getFollowing(userId: ID!): [User!]!
+  getFollowing(
+    """Number of items to return"""
+    limit: Int! = 10
+
+    """Number of items to skip"""
+    skip: Int! = 0
+    userId: ID!
+  ): [User!]!
   getFollowingCount(userId: ID!): Int!
   getGroupById(id: ID!): Group
   getGroupBySlug(slug: String!): Group
   getGroupJoinRequests(groupId: ID!, status: GroupJoinRequestStatusGQL = PENDING): [GroupJoinRequest!]!
+  getGroupMembers(
+    groupId: ID!
+
+    """Number of items to return"""
+    limit: Int! = 10
+
+    """Number of items to skip"""
+    skip: Int! = 0
+  ): [GroupMembership!]!
   getGroups(
     """Number of items to return"""
     limit: Int! = 10
@@ -620,10 +879,38 @@ type Query {
     """Number of items to skip"""
     skip: Int! = 0
   ): [Group!]!
+  getMessages(
+    conversationId: ID!
+
+    """Number of items to return"""
+    limit: Int! = 10
+
+    """Number of items to skip"""
+    skip: Int! = 0
+  ): [Message!]!
   getMyConnectionRequests(
     """Filter requests by status (e.g., PENDING)"""
     status: ConnectionRequestStatusGQL
   ): [ConnectionRequest!]!
+  getMyConversations(
+    """Number of items to return"""
+    limit: Int! = 10
+
+    """Number of items to skip"""
+    skip: Int! = 0
+  ): [Conversation!]!
+  getMyGroupJoinRequests(
+    groupId: ID
+
+    """Number of items to return"""
+    limit: Int! = 10
+
+    """Number of items to skip"""
+    skip: Int! = 0
+    status: GroupJoinRequestStatusGQL
+  ): [GroupJoinRequest!]!
+  getMyGroupMembership(groupId: ID!): GroupMembership
+  getMyNotificationPreferences: NotificationPreference!
   getMyNotifications(
     """Number of items to return"""
     limit: Int! = 10
@@ -635,6 +922,15 @@ type Query {
     """The ID of the most recent post the user has seen."""
     since: DateTime!
   ): Float!
+  getPendingGroupPosts(
+    groupId: ID!
+
+    """Number of items to return"""
+    limit: Int! = 10
+
+    """Number of items to skip"""
+    skip: Int! = 0
+  ): [Post!]!
   getPostById(id: ID!): Post
   getPostsByAuthor(
     authorId: ID!
@@ -654,7 +950,9 @@ type Query {
     """Number of items to skip"""
     skip: Int! = 0
   ): [Post!]!
-  getUserByFirebaseUid(firebaseUid: ID!): User
+  getReports(groupId: ID!, status: ReportStatus): [Report!]!
+  getUnreadConversationsCount: Int!
+  getUserByAuthUserId(authUserId: ID!): User
   getUserById(id: ID!): User
   getUserBySlug(slug: String!): User
   me: User
@@ -668,6 +966,31 @@ type Query {
   unreadNotificationsCount: Float!
 }
 
+type Report {
+  commentId: ID
+  createdAt: DateTime!
+  details: String
+  id: ID!
+  postId: ID
+  reason: ReportReason!
+  reportedUserId: ID
+  status: ReportStatus!
+}
+
+enum ReportReason {
+  ADVERTISING
+  MEDICAL_MISINFORMATION
+  OTHER
+  PATIENT_DATA
+  TITLE_IMPERSONATION
+}
+
+enum ReportStatus {
+  DISMISSED
+  PENDING
+  REVIEWED
+}
+
 input RequestAdminPasswordResetInput {
   email: String!
 }
@@ -675,6 +998,10 @@ input RequestAdminPasswordResetInput {
 input ResetAdminPasswordInput {
   newPassword: String!
   token: String!
+}
+
+input RespondToGroupJoinRequestInput {
+  requestId: ID!
 }
 
 """Medical specialty or field of activity for an individual professional."""
@@ -696,8 +1023,12 @@ enum Speciality {
 type Subscription {
   commentAdded(postId: ID!): String!
   connectionRequestUpdated: ConnectionRequestForSubscriptionGQL
+  conversationPresence(conversationId: ID!): ConversationPresenceUpdate!
   followsUpdated(userId: ID!): FollowsUpdate
   likesUpdated(likeableId: ID!, likeableType: String!): LikesUpdate!
+  messageAdded(conversationId: ID!): Message!
+  messageDeleted(conversationId: ID!): ID!
+  messageEdited(conversationId: ID!): Message!
   notificationAdded: Notification!
 }
 
@@ -717,7 +1048,33 @@ input UpdateAdminUserInput {
 input UpdateGroupInput {
   description: String
   name: String
+  postsRequireApproval: Boolean = false
   privacy: GroupPrivacy = PUBLIC
+  restrictToVerifiedTitles: Boolean = false
+  rules: [String!]
+}
+
+input UpdateGroupMemberRoleInput {
+  role: GroupMemberRole!
+  userId: ID!
+}
+
+input UpdateNotificationPreferencesInput {
+  notifyConnectionRequests: Boolean
+  notifyEstablishmentAnnouncements: Boolean
+  notifyGroupActivity: Boolean
+  notifyMentions: Boolean
+  notifyMessages: Boolean
+  notifyReactions: Boolean
+  notifyReplies: Boolean
+  quietHoursEnabled: Boolean
+
+  """0-23"""
+  quietHoursEnd: Int
+
+  """0-23"""
+  quietHoursStart: Int
+  weeklyEmailDigest: Boolean
 }
 
 input UpdatePostInput {
@@ -746,23 +1103,40 @@ input UpdateUserInput {
   websiteUrl: String
 }
 
+enum UploadPurpose {
+  ACCREDITATION_DOCUMENT
+  AVATAR
+  COVER_PICTURE
+  GROUP_PICTURE
+  POST_MEDIA
+}
+
+type UploadUrlResponse {
+  """Object key (path) the file was stored under in the bucket."""
+  key: String!
+
+  """Public URL the file will be reachable at once uploaded."""
+  publicUrl: String!
+
+  """
+  Presigned URL to PUT the file directly to Cloudflare R2. Expires shortly after issuance.
+  """
+  uploadUrl: String!
+}
+
 """Represents a user, can be an individual or a legal entity."""
 interface User {
   accountStatus: AccountStatus!
+  authUserId: ID
   bio: String
-
-  """List of blocked user IDs"""
-  blockedUsers: [ID!]!
+  blockedUsers: [ID!]
 
   """List of connected user IDs"""
   connections: [ID!]!
   coverPicUrl: String
   createdAt: DateTime!
-  email: String!
-  fcmTokens: [String!]!
-
-  """User's unique identifier from Firebase Authentication"""
-  firebaseUid: ID!
+  email: String
+  fcmTokens: [String!]
 
   """List of follower user IDs"""
   followers: [ID!]!
@@ -777,7 +1151,7 @@ interface User {
 
   """User location details"""
   location: LocationObject
-  phoneNumber: String!
+  phoneNumber: String
 
   """Professional accreditation documents or details."""
   professionalAccreditation: [ProfessionalAccreditationObject!]

@@ -1,204 +1,209 @@
-import {
-  Injectable,
-  NotFoundException,
-  ForbiddenException,
-  Inject,
-} from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model, Types } from 'mongoose';
+import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { PubSub } from 'graphql-subscriptions';
-import { Post, PostDocument } from './schemas/posts.schema';
-import {
-  Comment,
-  CommentDocument,
-  CommentStatus,
-} from './schemas/comments.schema';
+import { Inject } from '@nestjs/common';
+import { PrismaService } from '../prisma/prisma.service';
+import { CommentStatus, MediaType } from '../../generated/prisma/enums';
+import type { Prisma } from '../../generated/prisma/client';
 import { PaginationArgs } from './dto/pagination.args';
 import { NotificationsService } from '../notifications/notifications.service';
 import { NotificationType } from '../notifications/schemas/notification.schema';
 import { PUB_SUB } from '../pubsub/pubsub.module';
 import { CreateCommentInput } from './dto/create-comment.input';
 
+// Media used to be an embedded Mongoose array — it's a separate Prisma
+// table now, so every query returning a Comment to a caller needs this.
+const WITH_MEDIA = { media: true } as const;
+
 @Injectable()
 export class CommentsService {
   constructor(
-    @InjectModel(Post.name) private postModel: Model<PostDocument>,
-    @InjectModel(Comment.name) private commentModel: Model<CommentDocument>,
+    private readonly prisma: PrismaService,
     private readonly notificationsService: NotificationsService,
     @Inject(PUB_SUB) private readonly pubSub: PubSub,
   ) {}
 
-  async addComment(
-    authorId: string,
-    createCommentInput: CreateCommentInput,
-  ): Promise<CommentDocument> {
-    const post = await this.postModel
-      .findById(createCommentInput.postId)
-      .select('_id author')
-      .lean();
+  async addComment(authorId: string, createCommentInput: CreateCommentInput) {
+    const post = await this.prisma.post.findUnique({
+      where: { id: createCommentInput.postId },
+      select: { id: true, authorId: true },
+    });
     if (!post) {
       throw new NotFoundException(
         `Post with ID "${createCommentInput.postId}" not found.`,
       );
     }
 
-    let savedComment: CommentDocument;
-    const session = await this.commentModel.db.startSession();
+    const { media, parentId, postId, content } = createCommentInput;
 
-    try {
-      await session.withTransaction(async () => {
-        const newComment = new this.commentModel({
-          post: createCommentInput.postId,
-          author: authorId,
-          content: createCommentInput.content,
-          media: createCommentInput.media,
-          parent: createCommentInput.parentId || null,
+    const [savedComment] = await this.prisma.$transaction(async (tx) => {
+      const data: Prisma.CommentUncheckedCreateInput = {
+        postId,
+        authorId,
+        content,
+        parentId: parentId || null,
+        ...(media && {
+          media: {
+            create: media.map((m) => ({ ...m, type: m.type as MediaType })),
+          },
+        }),
+      };
+      const comment = await tx.comment.create({ data, include: WITH_MEDIA });
+
+      if (!parentId) {
+        await tx.post.update({
+          where: { id: postId },
+          data: { commentsCount: { increment: 1 } },
         });
+      } else {
+        await tx.comment.update({
+          where: { id: parentId },
+          data: { repliesCount: { increment: 1 } },
+        });
+      }
 
-        // Save the comment within the transaction
-        savedComment = await newComment.save({ session });
+      return [comment];
+    });
 
-        if (!createCommentInput.parentId) {
-          // Only increment commentsCount for top-level comments
-          await this.postModel.updateOne(
-            { _id: createCommentInput.postId },
-            { $inc: { commentsCount: 1 } },
-            { session },
-          );
-        } else {
-          // If it's a reply, increment the commentsCount of the parent comment
-          await this.commentModel.updateOne(
-            { _id: createCommentInput.parentId },
-            { $inc: { commentsCount: 1 } },
-            { session },
-          );
-        }
-      }); // The transaction is automatically committed here if no errors were thrown.
+    this.pubSub.publish('COMMENT_ADDED', {
+      commentAdded: createCommentInput.postId,
+    });
 
-      // The transaction was successful, now we can perform side-effects.
-      // Populate the author details. This happens outside the transaction but before the session ends.
-      // await savedComment;
+    this.notificationsService.create({
+      recipients: [post.authorId],
+      sender: authorId,
+      type: NotificationType.POST_COMMENT,
+      entityId: post.id,
+      onModel: 'Post',
+    });
 
-      // Publish the event for GraphQL subscriptions
-      this.pubSub.publish('COMMENT_ADDED', {
-        commentAdded: createCommentInput.postId,
-      });
-
-      // Create the notification AFTER the transaction has succeeded.
-      this.notificationsService.create({
-        recipients: [post.author.toString()],
-        sender: authorId,
-        type: NotificationType.POST_COMMENT,
-        entityId: post._id.toString(),
-        onModel: 'Post',
-      });
-
-      return savedComment;
-    } finally {
-      // The session is automatically ended by withTransaction, but it's good practice to ensure it.
-      await session.endSession();
-    }
+    return savedComment;
   }
 
   async removeComment(commentId: string, userId: string): Promise<boolean> {
-    const comment = await this.commentModel.findById(commentId);
+    const comment = await this.prisma.comment.findUnique({
+      where: { id: commentId },
+    });
     if (!comment) {
       throw new NotFoundException(`Comment with ID "${commentId}" not found.`);
     }
-    if (comment.author.toString() !== userId) {
+    if (comment.authorId !== userId) {
       throw new ForbiddenException('You can only delete your own comments.');
     }
 
-    // Start recursive soft-delete
     await this.softDeleteCommentAndReplies(commentId);
+    return true;
+  }
 
+  async removeCommentAsAdmin(commentId: string): Promise<boolean> {
+    const comment = await this.prisma.comment.findUnique({
+      where: { id: commentId },
+    });
+    if (!comment) {
+      throw new NotFoundException(`Comment with ID "${commentId}" not found.`);
+    }
+    await this.softDeleteCommentAndReplies(commentId);
     return true;
   }
 
   /**
    * Recursively soft-deletes a comment and all its replies.
-   * @param commentId The ID of the comment to start deleting from.
    */
   private async softDeleteCommentAndReplies(commentId: string): Promise<void> {
-    // Find all direct replies to the current comment
-    const replies = await this.commentModel
-      .find({ parent: commentId })
-      .select('_id')
-      .lean();
+    const replies = await this.prisma.comment.findMany({
+      where: { parentId: commentId },
+      select: { id: true },
+    });
 
-    // Recursively delete each reply
     for (const reply of replies) {
-      await this.softDeleteCommentAndReplies(reply._id.toString());
+      await this.softDeleteCommentAndReplies(reply.id);
     }
 
-    // Soft-delete the current comment
-    const deletedComment = await this.commentModel.findByIdAndUpdate(
-      commentId,
-      {
-        $set: {
-          content: '[This comment has been deleted]',
-          status: CommentStatus.DELETED,
-          // Optionally clear author to anonymize, but keep it for historical data
-          // author: null
-        },
+    const deletedComment = await this.prisma.comment.update({
+      where: { id: commentId },
+      data: {
+        content: '[This comment has been deleted]',
+        status: CommentStatus.DELETED,
       },
-      { new: true },
-    );
+    });
 
-    // Decrement the post's comment count only for top-level comments
-    if (deletedComment) {
-      if (deletedComment.parent) {
-        // If it's a reply, decrement the commentsCount of the parent comment
-        await this.commentModel.updateOne(
-          { _id: deletedComment.parent },
-          { $inc: { commentsCount: -1 } },
-        );
-      } else {
-        // If it's a top-level comment, decrement the commentsCount of the post
-        await this.postModel.updateOne(
-          { _id: deletedComment.post },
-          { $inc: { commentsCount: -1 } },
-        );
-      }
+    if (deletedComment.parentId) {
+      await this.prisma.comment.update({
+        where: { id: deletedComment.parentId },
+        data: { repliesCount: { decrement: 1 } },
+      });
+    } else {
+      await this.prisma.post.update({
+        where: { id: deletedComment.postId },
+        data: { commentsCount: { decrement: 1 } },
+      });
     }
   }
 
   async findCommentsByPost(
     postId: string,
     paginationArgs: PaginationArgs,
-  ): Promise<CommentDocument[]> {
+    includeDeleted = false,
+  ) {
     const { skip, limit } = paginationArgs;
-
-    // Validate ObjectId format
-    if (!Types.ObjectId.isValid(postId)) {
-      throw new NotFoundException(`Invalid post ID format: ${postId}`);
-    }
-
-    return this.commentModel
-      .find({ post: postId, parent: null })
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit);
+    return this.prisma.comment.findMany({
+      where: {
+        postId,
+        parentId: null,
+        ...(includeDeleted ? {} : { status: CommentStatus.VISIBLE }),
+      },
+      orderBy: { createdAt: 'desc' },
+      skip,
+      take: limit,
+      include: WITH_MEDIA,
+    });
   }
 
   async findRepliesForComment(
     parentId: string,
     paginationArgs: PaginationArgs,
-  ): Promise<CommentDocument[]> {
+    includeDeleted = false,
+  ) {
     const { skip, limit } = paginationArgs;
-    return this.commentModel
-      .find({ parent: parentId }) // Fetch replies for a specific parent
-      .sort({ createdAt: 'asc' }) // Show oldest replies first for conversational flow
-      .skip(skip)
-      .limit(limit);
-    // .lean({ virtuals: true }); // Use .lean() for performance, and include virtuals like 'id'
+    return this.prisma.comment.findMany({
+      where: {
+        parentId,
+        ...(includeDeleted ? {} : { status: CommentStatus.VISIBLE }),
+      },
+      orderBy: { createdAt: 'asc' },
+      skip,
+      take: limit,
+      include: WITH_MEDIA,
+    });
   }
 
-  async findOne(id: string): Promise<CommentDocument> {
-    return this.commentModel.findById(id).exec();
+  async findOne(id: string, includeDeleted = false) {
+    const comment = await this.prisma.comment.findUnique({
+      where: { id },
+      include: WITH_MEDIA,
+    });
+    if (comment && !includeDeleted && comment.status === CommentStatus.DELETED) {
+      return null;
+    }
+    return comment;
   }
 
-  async findManyByIds(ids: readonly string[]): Promise<CommentDocument[]> {
-    return this.commentModel.find({ _id: { $in: ids } }).exec();
+  async findManyByIds(ids: readonly string[]) {
+    return this.prisma.comment.findMany({
+      where: { id: { in: [...ids] } },
+      include: WITH_MEDIA,
+    });
+  }
+
+  /**
+   * Lean lookup used to resolve a comment's parent post before checking
+   * group-content visibility (e.g. for getCommentReplies, which is only
+   * given a comment id).
+   */
+  async findPostIdForComment(commentId: string): Promise<string | null> {
+    const comment = await this.prisma.comment.findUnique({
+      where: { id: commentId },
+      select: { postId: true },
+    });
+    return comment?.postId ?? null;
   }
 }
