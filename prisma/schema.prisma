@@ -188,7 +188,12 @@ model User {
   coverPicUrl   String?
   websiteUrl    String?
 
-  accountStatus AccountStatus @default(PENDING_VERIFICATION)
+  // Auto-active on creation for now — the admin review panel that would
+  // otherwise gate this via updateAccountStatus doesn't exist yet, and
+  // leaving the old PENDING_VERIFICATION default would permanently strand
+  // every new registration with no way to ever become usable. Revert this
+  // default (and re-require review) once that panel ships.
+  accountStatus AccountStatus @default(ACTIVE)
   language      String        @default("en")
 
   // Native Postgres arrays — multi-valued attributes, not relations to
