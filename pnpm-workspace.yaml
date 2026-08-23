@@ -6,3 +6,4 @@ allowBuilds:
   bcrypt: true
   prisma: true
   protobufjs: true
+packages: []
