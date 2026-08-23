@@ -4,10 +4,13 @@ WORKDIR /usr/src/app
 # pnpm-lock.yaml is lockfileVersion 9 (pnpm 9.x) — pin via corepack so the
 # install is reproducible regardless of whatever pnpm ships in the base image.
 RUN corepack enable && corepack prepare pnpm@9 --activate
-COPY package.json pnpm-lock.yaml prisma.config.ts ./
+COPY package.json pnpm-lock.yaml prisma.config.ts tsconfig.json tsconfig.build.json ./
 # postinstall (prisma generate) needs the schema present — prisma.config.ts
 # points at prisma/schema.prisma, so the whole prisma/ dir has to exist
-# before `pnpm install` runs, not just after the later `COPY . .`.
+# before `pnpm install` runs, not just after the later `COPY . .`. tsconfig.json
+# also has to be present at generate-time: without it, Prisma's `prisma-client`
+# generator emits an ESM-style client (import.meta.url for __dirname) that
+# our commonjs-targeted tsc build then compiles into a runtime SyntaxError.
 COPY prisma ./prisma
 
 # ---- Dependencies ----
