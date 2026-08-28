@@ -12,6 +12,7 @@ import {
 import { UsersService } from './users.service';
 import { FollowsService } from '../follows/follows.service';
 import { User } from './models/users.model'; // Import the base GraphQL User model/interface
+import { ProfessionalExperienceGQL } from '../professional-experiences/models/professional-experience.model';
 import { CreateUserInput } from './dto/create-user.input';
 import { UseGuards, BadRequestException, Inject } from '@nestjs/common';
 import { PubSub } from 'graphql-subscriptions';
@@ -34,6 +35,7 @@ import { FollowsUpdate } from './models/follower-count-update.model';
 import { PUB_SUB } from '../pubsub/pubsub.module';
 import { GqlWsAuthGuard } from 'src/auth/guards/gql-ws-auth.guard';
 import { ConnectionRequestsService } from './connection-requests.service';
+import { ProfessionalExperiencesService } from '../professional-experiences/professional-experiences.service';
 
 @Resolver(() => User) // Specify User as the base type this resolver handles
 export class UsersResolver {
@@ -41,6 +43,7 @@ export class UsersResolver {
     private readonly usersService: UsersService,
     private readonly followsService: FollowsService,
     private readonly connectionRequestsService: ConnectionRequestsService,
+    private readonly professionalExperiencesService: ProfessionalExperiencesService,
     @Inject(PUB_SUB) private readonly pubSub: PubSub,
   ) {}
 
@@ -436,5 +439,12 @@ export class UsersResolver {
     @CurrentUser() viewer: CurrentUserType,
   ): string[] | null {
     return this.canViewPrivateFields(user, viewer) ? user.fcmTokens : null;
+  }
+
+  @ResolveField('professionalExperiences', () => [ProfessionalExperienceGQL], {
+    nullable: true,
+  })
+  resolveProfessionalExperiences(@Parent() user: UserDocument) {
+    return this.professionalExperiencesService.findByUserId(user.id);
   }
 }

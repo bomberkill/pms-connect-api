@@ -6,6 +6,7 @@ import {
   registerEnumType,
   GraphQLISODateTime,
 } from '@nestjs/graphql';
+import { ProfessionalExperienceGQL } from '../../professional-experiences/models/professional-experience.model';
 
 export enum UserTypeGQL {
   INDIVIDUAL = 'INDIVIDUAL',
@@ -187,6 +188,12 @@ export abstract class User {
     description: 'Professional accreditation documents or details.',
   })
   professionalAccreditation?: ProfessionalAccreditationObject[];
+
+  @Field(() => [ProfessionalExperienceGQL], {
+    nullable: true,
+    description: 'Professional work history entries.',
+  })
+  professionalExperiences?: ProfessionalExperienceGQL[];
 
   @Field({ nullable: true })
   profilePicUrl?: string;

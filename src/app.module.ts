@@ -39,6 +39,7 @@ import { BlocksModule } from './blocks/blocks.module';
 import { PresenceModule } from './presence/presence.module';
 import { PresenceService } from './presence/presence.service';
 import { MessagesModule } from './messages/messages.module';
+import { ProfessionalExperiencesModule } from './professional-experiences/professional-experiences.module';
 
 @Module({
   imports: [
@@ -219,6 +220,7 @@ query GetAllUsers {
     BlocksModule,
     PresenceModule,
     MessagesModule,
+    ProfessionalExperiencesModule,
 
     // Cache Module (Redis with in-memory fallback)
     CacheModule,

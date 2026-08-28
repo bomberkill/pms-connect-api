@@ -228,6 +228,7 @@ model User {
   // ---------- Relations ----------
 
   professionalAccreditations ProfessionalAccreditation[]
+  professionalExperiences    ProfessionalExperience[]
 
   postsAuthored    Post[]    @relation("PostAuthor")
   commentsAuthored Comment[] @relation("CommentAuthor")
@@ -275,6 +276,24 @@ model ProfessionalAccreditation {
   issuingAuthority  String?
 
   @@index([userId])
+}
+
+model ProfessionalExperience {
+  id               String   @id @default(cuid())
+  userId           String
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title            String
+  organizationName String
+  employmentType   String?
+  location         String?
+  startDate        DateTime
+  endDate          DateTime?
+  isCurrent        Boolean  @default(false)
+  description      String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([userId, startDate])
 }
 
 // ---------- Social graph ----------

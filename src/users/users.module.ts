@@ -9,6 +9,7 @@ import { PubSubModule } from '../pubsub/pubsub.module';
 import { PostsModule } from 'src/posts/posts.module';
 import { FollowsModule } from '../follows/follows.module';
 import { BlocksModule } from '../blocks/blocks.module';
+import { ProfessionalExperiencesModule } from '../professional-experiences/professional-experiences.module';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { BlocksModule } from '../blocks/blocks.module';
     PubSubModule,
     FollowsModule,
     BlocksModule,
+    ProfessionalExperiencesModule,
   ],
   providers: [
     UsersResolver,
